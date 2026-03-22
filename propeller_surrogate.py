@@ -1,5 +1,6 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from surrogate.evaluation import PRSEvaluator
 from surrogate.prs import PRSSurrogate
 
 TRAIN_DATA_FILE = ".data/prop_perfmap.csv"
@@ -28,13 +29,17 @@ def main():
     prs_model.train(X_train, y_train)
 
     # 4. Evaluate Performance
-    metrics = prs_model.evaluate(X_test, y_test)
+    evaluator = PRSEvaluator(cv_splits=5)
+    metrics = evaluator.evaluate(prs_model.model, X, y)
 
-    print("--- Validation Metrics ---")
+    print("--- Robust Validation Metrics ---")
     for target, scores in metrics.items():
         print(f"Target: {OUTPUT_COLS[target].capitalize()}")
-        print(f"  R2 Score : {scores['R2']:.4f}")
-        print(f"  RMSE     : {scores['RMSE']:.4f}")
+        print(f"  Predictive Q² (CV) : {scores['Q2_Predictive']:.4f}")
+        print(f"  NRMSE              : {scores['NRMSE'] * 100:.2f}%")
+        print(f"  Max Absolute Error : {scores['Max_Absolute_Error']:.4f}")
+        print(f"  PRESS Statistic    : {scores['PRESS']:.4e}")
+        print("-" * 30)
 
     # 5. Save the Model Robustly
     prs_model.save(MODEL_PATH)
