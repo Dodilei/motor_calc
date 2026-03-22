@@ -1,0 +1,1 @@
+# Framework to predict dynamic thrust of BLDCM driven propellers
