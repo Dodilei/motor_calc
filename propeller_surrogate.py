@@ -3,10 +3,12 @@ from sklearn.model_selection import train_test_split
 from surrogate.evaluation import PRSEvaluator
 from surrogate.prs import PRSSurrogate
 
+import numpy as np
+
 TRAIN_DATA_FILE = ".data/prop_perfmap.csv"
 INPUT_COLS = ["Diameter", "Pitch", "RPM", "V"]
 OUTPUT_COLS = ["Thrust", "Torque"]
-MODEL_PATH = ".models/prs_propeller_model.joblib"
+MODEL_PATH = ".models/prs_propeller_model"
 
 
 def main():
@@ -18,7 +20,7 @@ def main():
     y = train_df[OUTPUT_COLS].values
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+        X, y, test_size=0.075, random_state=42
     )
 
     # 2. Initialize Surrogate Model
@@ -27,6 +29,7 @@ def main():
 
     # 3. Train Model
     prs_model.train(X_train, y_train)
+    prs_model.train_error_surrogate(X_train, y_train)
 
     # 4. Evaluate Performance
     evaluator = PRSEvaluator(cv_splits=5)
@@ -47,9 +50,12 @@ def main():
 
     # 6. Verify Loading (Optional)
     loaded_model = PRSSurrogate.load(MODEL_PATH)
-    test_pred = loaded_model.predict(X_test[[0]])
     print("\nVerification - Prediction from loaded model:")
-    print(test_pred)
+
+    val, err = loaded_model.predict_with_trust(np.array([[18, 8, 5500, 1]]))
+
+    print(f"Predicted Thrust: {val[0][0]:.2f} N")
+    print(f"Local Uncertainty (Max Error Predictor): {err[0][0]:.2f} N")
 
 
 if __name__ == "__main__":
