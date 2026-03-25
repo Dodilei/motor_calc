@@ -25,7 +25,7 @@ def main():
     # ]
 
     X = train_df[INPUT_COLS].values
-    y = train_df[OUTPUT_COLS].values * 100
+    y = train_df[OUTPUT_COLS].values
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
