@@ -75,7 +75,7 @@ class BLDCMSolver:
                 f"Could not find equilibrium for Pin={target}W within RPM bounds {rpm_bounds}."
             )
 
-        if True:  # self._residual(n_eq, v_inf, 24.2, True) > 0:
+        if self._residual(n_eq, v_inf, 24.2, True) > 0:
             n_eq: float = brentq(
                 f=self._residual,
                 a=rpm_bounds[0],
