@@ -23,7 +23,8 @@ class BLDCMSolver:
 
     def _get_aero_coefficients(self, n_rpm: float, v_inf: float) -> tuple:
         # Construct input for the PRS surrogate
-        X_in = np.array([self.diameter * 39.37, self.pitch, n_rpm, v_inf])
+        v_inf_clp = max(0., v_inf)
+        X_in = np.array([[self.diameter * 39.37, self.pitch, n_rpm, v_inf_clp]])
 
         # Predict Cp and Ct using the surrogate model
         predictions = self.surrogate.predict(X_in)
@@ -42,8 +43,6 @@ class BLDCMSolver:
         # Calculate Propeller Power (Aerodynamic Load)
         n_rps = n_rpm / 60.0
         p_prop = cp * self.rho * (n_rps**3) * (self.diameter**5)
-
-        print(p_prop)
 
         # Calculate Motor Current
         i_motor = self.i0 + (p_prop * self.kv) / n_rpm
