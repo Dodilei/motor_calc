@@ -19,27 +19,51 @@ class AircraftParameters:
         self.CD_max = 0.20  # CD at CL_max
         self.mu = 0.03  # Typical friction for grass/runway
         self.P_limit = 600.0  # Power limit in Watts
+        self.V_limit = 24.2   # Voltage limit in Volts
 
 
 class TakeoffSolver:
-    def __init__(self, solver: BLDCMSolver, params: AircraftParameters, use_fast_thrust: bool = True):
+    def __init__(
+        self,
+        solver: BLDCMSolver,
+        params: AircraftParameters,
+        use_fast_thrust: bool = True,
+    ):
         self.solver = solver
         self.p = params
         self.use_fast_thrust = use_fast_thrust
-        # 3rd degree polynomial coefficients for P=600W, 0-20 m/s range
-        # T(v) = a*v^3 + b*v^2 + c*v + d
-        self._thrust_poly = np.poly1d([-3.94448e-04, 2.86676e-02, -1.51805e+00, 4.04282e+01])
+        self._thrust_poly = None
+
+        if self.use_fast_thrust:
+            self._fit_thrust_polynomial()
+
+    def _fit_thrust_polynomial(self, v_range=(0, 25), pts=12):
+        """Samples the solver to create a fast 3rd-degree polynomial fit."""
+        v_samples = np.linspace(v_range[0], v_range[1], pts)
+        t_samples = []
+        for v in v_samples:
+            try:
+                t = self.solver.solve_thrust(
+                    v, max_power=self.p.P_limit, max_voltage=self.p.V_limit
+                )
+                t_samples.append(t)
+            except Exception:
+                t_samples.append(0.0)
+
+        # 3rd degree polynomial fit: T(v) = a*v^3 + b*v^2 + c*v + d
+        coeffs = np.polyfit(v_samples, t_samples, 3)
+        self._thrust_poly = np.poly1d(coeffs)
 
     def _get_thrust(self, v_inf):
         """Wrapper to get thrust. Uses fast polynomial fit if enabled."""
-        if self.use_fast_thrust:
-            # Clip velocity to 20m/s for the polynomial range, or just let it extrapolate?
-            # 0-25m/s is safer.
-            v = np.clip(v_inf, 0.0, 25.0)
+        if self.use_fast_thrust and self._thrust_poly is not None:
+            v = np.clip(v_inf, 0.0, 30.0)
             return max(0.0, self._thrust_poly(v))
 
         try:
-            return self.solver.solve_thrust(target=self.p.P_limit, v_inf=v_inf)
+            return self.solver.solve_thrust(
+                v_inf=v_inf, max_power=self.p.P_limit, max_voltage=self.p.V_limit
+            )
         except Exception:
             return 0.0
 

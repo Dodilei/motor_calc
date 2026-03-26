@@ -8,7 +8,8 @@ from takeoff import AircraftParameters, TakeoffSolver
 
 
 def find_tow_for_combination(solver, params, target_dist=55.0):
-    sim = TakeoffSolver(solver, params, use_fast_thrust=False)
+    sim = TakeoffSolver(solver, params, use_fast_thrust=True)
+    t_static = sim._get_thrust(0.0)
 
     def f(P):
         # Increased dt for speed during sweep
@@ -18,14 +19,14 @@ def find_tow_for_combination(solver, params, target_dist=55.0):
     try:
         # Check signs at bounds
         if f(5.0) > 0:
-            return 5.0
-        if f(25.0) < 0:
-            return 25.0
+            return 5.0, t_static
+        if f(20.0) < 0:
+            return 20.0, t_static
 
-        opt_mass = bisect(f, 5.0, 25.0, xtol=0.2)
-        return opt_mass
+        opt_mass = bisect(f, 5.0, 20.0, xtol=0.01)
+        return opt_mass, t_static
     except Exception:
-        return None
+        return None, None
 
 
 def main():
@@ -50,9 +51,9 @@ def main():
     results = []
 
     print(
-        f"{'Motor':<6} | {'Prop':<6} | {'PropWt':<6} | {'MotWt':<6} | {'MTOW':<8} | {'Net MTOW':<8}"
+        f"{'Motor':<6} | {'Prop':<6} | {'PropWt':<6} | {'MotWt':<6} | {'TStatic':<8} | {'MTOW':<8} | {'Net MTOW':<8}"
     )
-    print("-" * 60)
+    print("-" * 75)
 
     for motor in motors:
         for prop in props:
@@ -66,7 +67,7 @@ def main():
                 pitch=prop["pitch"],
             )
 
-            mtow = find_tow_for_combination(solver, params)
+            mtow, t_static = find_tow_for_combination(solver, params)
 
             if mtow is not None:
                 propulsion_wt = motor["weight"] + prop["weight"]
@@ -78,10 +79,11 @@ def main():
                         "MTOW": mtow,
                         "Propulsion_Wt": propulsion_wt,
                         "Net_MTOW": net_mtow,
+                        "T_static": t_static,
                     }
                 )
                 print(
-                    f"{motor['name']:<6} | {prop['name']:<6} | {prop['weight']:<6.2f} | {motor['weight']:<6.2f} | {mtow:<8.3f} | {net_mtow:<8.3f}"
+                    f"{motor['name']:<6} | {prop['name']:<6} | {prop['weight']:<6.2f} | {motor['weight']:<6.2f} | {t_static:<8.2f} | {mtow:<8.3f} | {net_mtow:<8.3f}"
                 )
             else:
                 print(f"{motor['name']:<6} | {prop['name']:<6} | FAILED")

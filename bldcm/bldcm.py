@@ -23,7 +23,7 @@ class BLDCMSolver:
 
     def _get_aero_coefficients(self, n_rpm: float, v_inf: float) -> tuple:
         # Construct input for the PRS surrogate
-        v_inf_clp = max(0., v_inf)
+        v_inf_clp = max(0.0, v_inf)
         X_in = np.array([[self.diameter * 39.37, self.pitch, n_rpm, v_inf_clp]])
 
         # Predict Cp and Ct using the surrogate model
@@ -36,7 +36,11 @@ class BLDCMSolver:
         return cp, ct
 
     def _residual(
-        self, n_rpm: float, v_inf: float, target: float, voltage=False
+        self,
+        n_rpm: float,
+        v_inf: float,
+        target_power: float | None = None,
+        target_voltage: float | None = None,
     ) -> float:
         cp, _ = self._get_aero_coefficients(n_rpm, v_inf)
 
@@ -50,38 +54,41 @@ class BLDCMSolver:
         # Calculate Motor Voltage
         v_motor = (n_rpm / self.kv) + (i_motor * self.rm)
 
-        # Calculate Electrical Input Power
         p_in_calc = v_motor * i_motor
 
-        if voltage:
-            return v_motor - target
+        if target_power is None:
+            return v_motor - target_voltage
+        elif target_voltage is None:
+            return p_in_calc - target_power
         else:
-            return p_in_calc - target
+            return max(v_motor - target_voltage, p_in_calc - target_power)
 
-    def solve_for_target_power(
-        self, target: float, v_inf: float, rpm_bounds: tuple = (100, 15000)
-    ) -> dict:
+    def solve_thrust(
+        self,
+        v_inf: float,
+        max_power: float | None = 600,
+        max_voltage: float | None = 24.2,
+        rpm_bounds: tuple = (100, 15000),
+        return_state: bool = False,
+    ):
+        residualf_args = (v_inf, max_power, max_voltage)
+
+        brentq_kwargs = {
+            "f": self._residual,
+            "a": rpm_bounds[0],
+            "b": rpm_bounds[1],
+            "xtol": 1e-3,
+        }
+
         try:
-            # Isolate the equilibrium RPM
             n_eq: float = brentq(
-                f=self._residual,
-                a=rpm_bounds[0],
-                b=rpm_bounds[1],
-                args=(v_inf, target),
-                xtol=1e-3,
-            )
+                **brentq_kwargs,
+                args=residualf_args,
+            )  # pyright: ignore[reportAssignmentType]
+
         except ValueError:
             raise RuntimeError(
-                f"Could not find equilibrium for Pin={target}W within RPM bounds {rpm_bounds}."
-            )
-
-        if self._residual(n_eq, v_inf, 24.2, True) > 0:
-            n_eq: float = brentq(
-                f=self._residual,
-                a=rpm_bounds[0],
-                b=rpm_bounds[1],
-                args=(v_inf, 24.2, True),
-                xtol=1e-3,
+                f"Could not find equilibrium for ({max_power},{max_voltage}) at {v_inf} within RPM bounds."
             )
 
         # Retrieve final state at equilibrium
@@ -89,57 +96,27 @@ class BLDCMSolver:
         n_rps = n_eq / 60.0
 
         # Final Aerodynamic metrics
-        p_prop = cp * self.rho * (n_rps**3) * (self.diameter**5)
-        thrust = ct * self.rho * (n_rps**2) * (self.diameter**4)
-        j_adv = v_inf / (n_rps * self.diameter) if v_inf > 0 else 0.0
-
-        # Final Electrical metrics
-        i_eq = self.i0 + (p_prop * self.kv) / n_eq
-        v_eq = (n_eq / self.kv) + (i_eq * self.rm)
-        efficiency = p_prop / (v_eq * i_eq)
-
-        return {
-            "RPM": n_eq,
-            "Voltage_V": v_eq,
-            "Current_A": i_eq,
-            "Thrust_N": thrust,
-            "Efficiency": efficiency,
-            "Advance_Ratio_J": j_adv,
-            "P_prop_W": p_prop,
-            "cp": cp,
-        }
-
-    def solve_thrust(
-        self, target: float, v_inf: float, rpm_bounds: tuple = (100, 15000)
-    ):
-        try:
-            # Isolate the equilibrium RPM
-            n_eq: float = brentq(
-                f=self._residual,
-                a=rpm_bounds[0],
-                b=rpm_bounds[1],
-                args=(v_inf, target),
-                xtol=1e-3,
-            )
-        except ValueError:
-            raise RuntimeError(
-                f"Could not find equilibrium for Pin={target}W within RPM bounds {rpm_bounds}."
-            )
-
-        if self._residual(n_eq, v_inf, 24.2, True) > 0:
-            n_eq: float = brentq(
-                f=self._residual,
-                a=rpm_bounds[0],
-                b=rpm_bounds[1],
-                args=(v_inf, 24.2, True),
-                xtol=1e-3,
-            )
-
-        # Retrieve final state at equilibrium
-        _, ct = self._get_aero_coefficients(n_eq, v_inf)
-        n_rps = n_eq / 60.0
-
-        # Final Aerodynamic metrics
         thrust = ct * self.rho * (n_rps**2) * (self.diameter**4)
 
-        return thrust
+        if not return_state:
+            return thrust
+        else:
+            p_prop = cp * self.rho * (n_rps**3) * (self.diameter**5)
+            j_adv = v_inf / (n_rps * self.diameter) if v_inf > 0 else 0.0
+
+            # Final Electrical metrics
+            i_eq = self.i0 + (p_prop * self.kv) / n_eq
+            v_eq = (n_eq / self.kv) + (i_eq * self.rm)
+            efficiency = p_prop / (v_eq * i_eq)
+
+            return {
+                "RPM": n_eq,
+                "Voltage_V": v_eq,
+                "Current_A": i_eq,
+                "Thrust_N": thrust,
+                "Efficiency": efficiency,
+                "Advance_Ratio_J": j_adv,
+                "P_el": v_eq * i_eq,
+                "P_prop_W": p_prop,
+                "cp": cp,
+            }
