@@ -1,3 +1,6 @@
+import cProfile
+import pstats
+import io
 import numpy as np
 from scipy.optimize import bisect
 from bldcm.bldcm import BLDCMSolver
@@ -9,9 +12,9 @@ class AircraftParameters:
     def __init__(self):
         self.g = 9.81
         self.rho = 1.225
-        self.S_wing = 0.53  # m^2 (Typical for 1.8m span)
-        self.CL_max = 1.4  # Max CL for air phase
-        self.CL_ground = 0.4  # CL during ground roll
+        self.S_wing = 0.9  # m^2 (Typical for 1.8m span)
+        self.CL_max = 1.7  # Max CL for air phase
+        self.CL_ground = 0.8  # CL during ground roll
         self.CD_ground = 0.04  # Parasite drag + ground effect induction
         self.CD_max = 0.20  # CD at CL_max
         self.mu = 0.03  # Typical friction for grass/runway
@@ -19,12 +22,22 @@ class AircraftParameters:
 
 
 class TakeoffSolver:
-    def __init__(self, solver: BLDCMSolver, params: AircraftParameters):
+    def __init__(self, solver: BLDCMSolver, params: AircraftParameters, use_fast_thrust: bool = True):
         self.solver = solver
         self.p = params
+        self.use_fast_thrust = use_fast_thrust
+        # 3rd degree polynomial coefficients for P=600W, 0-20 m/s range
+        # T(v) = a*v^3 + b*v^2 + c*v + d
+        self._thrust_poly = np.poly1d([-3.94448e-04, 2.86676e-02, -1.51805e+00, 4.04282e+01])
 
     def _get_thrust(self, v_inf):
-        """Wrapper to get thrust from BLDCM solver at current speed."""
+        """Wrapper to get thrust. Uses fast polynomial fit if enabled."""
+        if self.use_fast_thrust:
+            # Clip velocity to 20m/s for the polynomial range, or just let it extrapolate?
+            # 0-25m/s is safer.
+            v = np.clip(v_inf, 0.0, 25.0)
+            return max(0.0, self._thrust_poly(v))
+
         try:
             return self.solver.solve_thrust(target=self.p.P_limit, v_inf=v_inf)
         except Exception:
@@ -34,7 +47,7 @@ class TakeoffSolver:
         """Calculates stall speed for given mass and lift coefficient."""
         return np.sqrt((2 * mass * self.p.g) / (self.p.rho * self.p.S_wing * cl))
 
-    def simulate(self, mass, h_obs=0.9, dt=0.01):
+    def simulate(self, mass, h_obs=0.9, dt=0.01, max_steps=10000):
         """
         Simulates takeoff using RK4 integration from v=0 to h=h_obs.
         State: [x, y, vx, vy]
@@ -90,7 +103,6 @@ class TakeoffSolver:
                 return np.array([vx, vy, ax, ay])
 
         step = 0
-        max_steps = 10000
         while state[1] < h_obs and step < max_steps:
             if state[0] > 150:  # Fail safe for runway length
                 return 150.1
@@ -116,7 +128,7 @@ class TakeoffSolver:
         return state[0]
 
 
-def find_tow_for_distance(target_dist=55.0):
+def find_tow_for_distance(target_dist=55.0, use_fast_thrust=True):
     # Load model and initialize solver
     surrogate_model = PRSSurrogate.load(MODEL_PATH)
     bldcm_solver = BLDCMSolver(
@@ -129,7 +141,7 @@ def find_tow_for_distance(target_dist=55.0):
     )
 
     params = AircraftParameters()
-    sim = TakeoffSolver(bldcm_solver, params)
+    sim = TakeoffSolver(bldcm_solver, params, use_fast_thrust=use_fast_thrust)
 
     def f(P):
         dist = sim.simulate(P)
@@ -163,8 +175,26 @@ def find_tow_for_distance(target_dist=55.0):
 
 
 if __name__ == "__main__":
-    print("Starting TOW optimization...")
-    optimal_tow = find_tow_for_distance(55.0)
+    import sys
+
+    use_fast = "--slow" not in sys.argv
+    if "--profile" in sys.argv:
+        print(f"Starting TOW optimization with profiling (Fast Thrust: {use_fast})...")
+        pr = cProfile.Profile()
+        pr.enable()
+        optimal_tow = find_tow_for_distance(55.0, use_fast_thrust=use_fast)
+        pr.disable()
+
+        s = io.StringIO()
+        sortby = "cumulative"
+        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps.print_stats(20)  # Show top 20 functions
+        print(s.getvalue())
+    else:
+        print(f"Starting TOW optimization (Fast Thrust: {use_fast})...")
+        print("Tip: Run with --profile to see performance analysis, or --slow to use iterative solver.")
+        optimal_tow = find_tow_for_distance(55.0, use_fast_thrust=use_fast)
+
     if optimal_tow:
         print(f"\nOptimal Takeoff Weight (TOW) for 55m runway: {optimal_tow:.3f} kg")
     else:
