@@ -53,15 +53,20 @@ def simulate_combination(motor_dict, prop_dict, params, surrogate_model):
 
     mtow, t_static = find_tow_for_combination(solver, params)
 
+    propulsion_wt = motor_dict["weight"] + prop_dict["weight"]
+    total_pv = params.PV + propulsion_wt
+    net_mtow = mtow - total_pv
+
+    structural_eff = (net_mtow) / total_pv
+
     if mtow is not None:
-        propulsion_wt = motor_dict["weight"] + prop_dict["weight"]
-        net_mtow = mtow - propulsion_wt
         return {
             "Motor": motor_dict["name"],
             "Prop": prop_dict["name"],
             "MTOW": mtow,
             "Propulsion_Wt": propulsion_wt,
             "Net_MTOW": net_mtow,
+            "EE": structural_eff,
             "T_static": t_static,
             "kv": motor_dict["kv"],
             "io": motor_dict["io"],
@@ -114,12 +119,16 @@ def update_ui(count, total_combinations, results, last_combo_str, results_dir):
     output = []
     # Fast clear screen using ANSI escape sequence
     output.append("\033[H\033[J")
-    
-    output.append(f"Propulsion Sweep (7 Threads): |{bar}| {progress_pct:6.2f}% ({count}/{total_combinations})")
+
+    output.append(
+        f"Propulsion Sweep (7 Threads): |{bar}| {progress_pct:6.2f}% ({count}/{total_combinations})"
+    )
 
     if results:
         last = results[-1]
-        output.append(f"Last Finished: {last['Motor']} + {last['Prop']} -> Net MTOW: {last['Net_MTOW']:.3f} kg")
+        output.append(
+            f"Last Finished: {last['Motor']} + {last['Prop']} -> EE: {last['EE']:.3f}"
+        )
     else:
         output.append("Last Finished: ---")
 
@@ -132,18 +141,24 @@ def update_ui(count, total_combinations, results, last_combo_str, results_dir):
         if count % 100 == 0:
             partial_path = os.path.join(results_dir, "sweep_results_partial.csv")
             try:
-                df_temp.sort_values("Net_MTOW", ascending=False).to_csv(partial_path, index=False)
+                df_temp.sort_values("EE", ascending=False).to_csv(
+                    partial_path, index=False
+                )
             except PermissionError:
-                pass # safely ignore if file is open
+                pass  # safely ignore if file is open
 
-        top_5 = df_temp.nlargest(5, "Net_MTOW")
+        top_5 = df_temp.nlargest(5, "EE")
         output.append("\n--- TOP 5 COMBINATIONS SO FAR ---")
-        output.append(f"{' # ':<3} | {'Motor':<35} | {'Kv':<8} | {'Prop':<12} | {'Net MTOW':<10}")
+        output.append(
+            f"{' # ':<3} | {'Motor':<35} | {'Kv':<8} | {'Prop':<12} | {'EE':<10}"
+        )
         output.append("-" * 100)
         for i, (_, row) in enumerate(top_5.iterrows()):
-            output.append(f"{i + 1:^3} | {row['Motor'][:30]:<35} | {row['kv']:<8} | {row['Prop']:<12} | {row['Net_MTOW']:<10.3f}")
+            output.append(
+                f"{i + 1:^3} | {row['Motor'][:30]:<35} | {row['kv']:<8} | {row['Prop']:<12} | {row['EE']:<10.3f}"
+            )
         output.append("-" * 100)
-        
+
     print("\n".join(output), end="")
 
 
@@ -162,14 +177,14 @@ def main():
         os.makedirs(results_dir)
 
     results = []
-    
+
     # Pre-build combinations
     combinations = []
     for _, motor in motor_df.iterrows():
         motor_dict = motor.to_dict()
         for prop in props:
             combinations.append((motor_dict, prop))
-            
+
     total_combinations = len(combinations)
     count = 0
 
@@ -179,7 +194,9 @@ def main():
     with ThreadPoolExecutor(max_workers=7) as executor:
         # Submit all tasks
         future_to_combo = {
-            executor.submit(simulate_combination, m_dict, p_dict, params, surrogate_model): (m_dict, p_dict)
+            executor.submit(
+                simulate_combination, m_dict, p_dict, params, surrogate_model
+            ): (m_dict, p_dict)
             for m_dict, p_dict in combinations
         }
 
@@ -188,7 +205,7 @@ def main():
             count += 1
             m_dict, p_dict = future_to_combo[future]
             combo_str = f"{m_dict['name']} + {p_dict['name']}"
-            
+
             try:
                 result = future.result()
                 if result is not None:
@@ -196,23 +213,23 @@ def main():
             except Exception as exc:
                 print(f"Combination {combo_str} generated an exception: {exc}")
 
-            # 5. Iterative UI 
+            # 5. Iterative UI
             update_ui(count, total_combinations, results, combo_str, results_dir)
 
     # 6. Saving Final Results
     df = pd.DataFrame(results)
     if not df.empty:
         output_path = os.path.join(results_dir, "sweep_results.csv")
-        df.sort_values("Net_MTOW", ascending=False).to_csv(output_path, index=False)
+        df.sort_values("EE", ascending=False).to_csv(output_path, index=False)
 
-        best = df.loc[df["Net_MTOW"].idxmax()]
+        best = df.loc[df["EE"].idxmax()]
         print("\n" + "=" * 40)
         print("BEST COMBINATION FOUND:")
         print(f"Motor: {best['Motor']}")
         print(f"Propeller: {best['Prop']}")
         print(f"MTOW: {best['MTOW']:.3f} kg")
         print(f"Propulsion Weight: {best['Propulsion_Wt']:.3f} kg")
-        print(f"Net MTOW: {best['Net_MTOW']:.3f} kg")
+        print(f"EE: {best['EE']:.3f}")
         print(f"Results saved to: {output_path}")
         print("=" * 40)
 

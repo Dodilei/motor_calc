@@ -20,6 +20,7 @@ class AircraftParameters:
         self.mu = 0.04  # Typical friction for grass/runway
         self.P_limit = 600.0  # Power limit in Watts
         self.V_limit = 22.2  # Voltage limit in Volts
+        self.PV = 2.1  # Empty weight (kg) [without GMP]
 
 
 class TakeoffSolver:
