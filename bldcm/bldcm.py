@@ -49,7 +49,8 @@ class BLDCMSolver:
         p_prop = cp * self.rho * (n_rps**3) * (self.diameter**5)
 
         # Calculate Motor Current
-        i_motor = self.i0 + (p_prop * self.kv) / n_rpm
+        v_est = n_rpm / self.kv + self.rm * (self.i0 + p_prop * self.kv) / n_rpm
+        i_motor = (self.i0 + (1 + 0.01 * v_est)) + (p_prop * self.kv) / n_rpm
 
         # Calculate Motor Voltage
         v_motor = (n_rpm / self.kv) + (i_motor * self.rm)
@@ -105,7 +106,8 @@ class BLDCMSolver:
             j_adv = v_inf / (n_rps * self.diameter) if v_inf > 0 else 0.0
 
             # Final Electrical metrics
-            i_eq = self.i0 + (p_prop * self.kv) / n_eq
+            v_est = n_eq / self.kv + self.rm * (self.i0 + p_prop * self.kv) / n_eq
+            i_eq = (self.i0 + (1 + 0.01 * v_est)) + (p_prop * self.kv) / n_eq
             v_eq = (n_eq / self.kv) + (i_eq * self.rm)
             efficiency = p_prop / (v_eq * i_eq)
 

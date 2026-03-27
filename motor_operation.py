@@ -7,7 +7,7 @@ from bldcm.bldcm import BLDCMSolver
 from propeller_surrogate import MODEL_PATH
 from surrogate.prs import PRSSurrogate
 
-BATT_VOLTAGE = 24.2
+BATT_VOLTAGE = 22.2
 
 
 def sweep_forward_speed(
@@ -74,7 +74,7 @@ def plot_bldc_performance(df: pd.DataFrame, p_in_target: float):
         label="P_el (W)",
     )
     ax_p_el.set_ylabel("Electrical Power (W)")
-    ax_p_el.set_ylim(0, p_in_target * 1.1)
+    ax_p_el.set_ylim(0, max(p_in_target, df["P_el"].max()) * 1.1)
     ax_p_el.grid(False)  # Avoid cluttered grid lines
 
     # Merge legends for Plot 3
@@ -106,10 +106,11 @@ def plot_bldc_performance(df: pd.DataFrame, p_in_target: float):
         label="Voltage (V)",
     )
     ax_volt.axhline(
-        24.2, color="red", linestyle="--", alpha=0.7, label="6S Limit (24.2V)"
+        BATT_VOLTAGE, color="red", linestyle="--", alpha=0.7, label="6S Limit"
     )
     ax_volt.set_ylabel("Voltage (V)")
     ax_volt.set_title("Electrical Telemetry")
+    ax_volt.set_ylim(0, df["Voltage_V"].max() * 1.1)
 
     ax_curr = ax_volt.twinx()
     sns.lineplot(
@@ -151,11 +152,11 @@ def main():
     # Dummy parameters for demonstration
     solver = BLDCMSolver(
         surrogate_model=surrogate_model,
-        kv=310.0,
-        i0=1.66,
-        rm=0.065,
-        diameter=17 * 0.0254,
-        pitch=8,
+        kv=320.0 * 1.05,
+        i0=1.0 * (1 + 0.01 * (BATT_VOLTAGE - 18.0)),
+        rm=(0.048 * 0.95) * (1.035**3),
+        diameter=22 * 0.0254,
+        pitch=10,
     )
 
     target_power = 600.0  # Watts
