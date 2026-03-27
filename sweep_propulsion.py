@@ -1,14 +1,12 @@
-import numpy as np
+import os
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from scipy.optimize import bisect
+
 from bldcm.bldcm import BLDCMSolver
 from surrogate.prs import PRSSurrogate
 from propeller_surrogate import MODEL_PATH
 from takeoff import AircraftParameters, TakeoffSolver
-import itertools
-
-
-BATTERY_VOLTAGE = 22.2
 
 
 def find_tow_for_combination(solver, params, target_dist=55.0):
@@ -17,7 +15,7 @@ def find_tow_for_combination(solver, params, target_dist=55.0):
 
     def f(P):
         # Increased dt for speed during sweep
-        dist = sim.simulate(P, dt=0.08)
+        dist = sim.simulate(P, dt=0.05, max_steps=500)
         return dist - target_dist
 
     try:
@@ -33,75 +31,180 @@ def find_tow_for_combination(solver, params, target_dist=55.0):
         return None, None
 
 
+def simulate_combination(motor_dict, prop_dict, params, surrogate_model):
+    """
+    Simulates a specific motor and propeller combination and
+    returns the simulation results if successful.
+    """
+    # Corrections to motor parameters
+    corr_kv = motor_dict["kv"] * 1.05
+    corr_io = motor_dict["io"] * (1 - 0.01 * motor_dict["io_vref"])
+    corr_rm = (motor_dict["rm"] * 0.95) * (1.035**3)
+
+    # Initialize BLDCM Solver
+    solver = BLDCMSolver(
+        surrogate_model=surrogate_model,
+        kv=corr_kv,
+        i0=corr_io,
+        rm=corr_rm,
+        diameter=prop_dict["diam"] * 0.0254,
+        pitch=prop_dict["pitch"],
+    )
+
+    mtow, t_static = find_tow_for_combination(solver, params)
+
+    if mtow is not None:
+        propulsion_wt = motor_dict["weight"] + prop_dict["weight"]
+        net_mtow = mtow - propulsion_wt
+        return {
+            "Motor": motor_dict["name"],
+            "Prop": prop_dict["name"],
+            "MTOW": mtow,
+            "Propulsion_Wt": propulsion_wt,
+            "Net_MTOW": net_mtow,
+            "T_static": t_static,
+            "kv": motor_dict["kv"],
+            "io": motor_dict["io"],
+            "rm": motor_dict["rm"],
+            "io_vref": motor_dict["io_vref"],
+        }
+    return None
+
+
+def get_motors():
+    # Load and Clean Motor Database
+    motor_df = pd.read_csv("./.data/tmotor_data.csv")
+    motor_df = motor_df.dropna(subset=["rm", "io", "kv", "io_vref"])
+    motor_df["rm"] = motor_df["rm"] / 1000.0
+    motor_df["weight"] = motor_df["weight"] / 1000.0
+    return motor_df
+
+
+def get_props():
+    # Create Propeller Sweep
+    prop_perf_df = pd.read_csv(
+        "./.data/prop_perfmap.csv", usecols=["Propeller", "Diameter", "Pitch"]
+    )
+    prop_perf_df = prop_perf_df.drop_duplicates()
+
+    # Filter available props between 16;22 diam, 6;12 pitch
+    prop_perf_df = prop_perf_df[
+        (prop_perf_df["Diameter"] >= 16)
+        & (prop_perf_df["Diameter"] <= 22)
+        & (prop_perf_df["Pitch"] >= 6)
+        & (prop_perf_df["Pitch"] <= 12)
+    ]
+
+    props = []
+    for _, row in prop_perf_df.iterrows():
+        d, p, name = row["Diameter"], row["Pitch"], row["Propeller"]
+        # weight formula (kg): (12*diam + 4*pitch - 176) / 1000
+        w = (12 * d + 4 * p - 176) / 1000.0
+        props.append({"name": name, "diam": d, "pitch": p, "weight": w})
+    return props
+
+
+def update_ui(count, total_combinations, results, last_combo_str, results_dir):
+    progress_val = count / total_combinations
+    progress_pct = progress_val * 100
+    bar_length = 30
+    filled_length = int(bar_length * progress_val)
+    bar = "=" * filled_length + "-" * (bar_length - filled_length)
+
+    output = []
+    # Fast clear screen using ANSI escape sequence
+    output.append("\033[H\033[J")
+    
+    output.append(f"Propulsion Sweep (7 Threads): |{bar}| {progress_pct:6.2f}% ({count}/{total_combinations})")
+
+    if results:
+        last = results[-1]
+        output.append(f"Last Finished: {last['Motor']} + {last['Prop']} -> Net MTOW: {last['Net_MTOW']:.3f} kg")
+    else:
+        output.append("Last Finished: ---")
+
+    output.append(f"Just simulated: {last_combo_str} ...")
+
+    if results:
+        df_temp = pd.DataFrame(results)
+
+        # Periodic Save (every 100 iterations)
+        if count % 100 == 0:
+            partial_path = os.path.join(results_dir, "sweep_results_partial.csv")
+            try:
+                df_temp.sort_values("Net_MTOW", ascending=False).to_csv(partial_path, index=False)
+            except PermissionError:
+                pass # safely ignore if file is open
+
+        top_5 = df_temp.nlargest(5, "Net_MTOW")
+        output.append("\n--- TOP 5 COMBINATIONS SO FAR ---")
+        output.append(f"{' # ':<3} | {'Motor':<35} | {'Kv':<8} | {'Prop':<12} | {'Net MTOW':<10}")
+        output.append("-" * 100)
+        for i, (_, row) in enumerate(top_5.iterrows()):
+            output.append(f"{i + 1:^3} | {row['Motor'][:30]:<35} | {row['kv']:<8} | {row['Prop']:<12} | {row['Net_MTOW']:<10.3f}")
+        output.append("-" * 100)
+        
+    print("\n".join(output), end="")
+
+
 def main():
-    # 1. Load Surrogate
+    # 1. Load Surrogate and Parameter
     surrogate_model = PRSSurrogate.load(MODEL_PATH)
     params = AircraftParameters()
 
-    # 2. Load and Clean Motor Database
-    motor_df = pd.read_csv("./.data/tmotor_data.csv")
-    # Clean: remove entries if missing rm, io, kv or io_vref
-    motor_df = motor_df.dropna(subset=["rm", "io", "kv", "io_vref"])
+    # 2. Extract Data
+    motor_df = get_motors()
+    props = get_props()
 
-    # Convert units: rm (mOhm -> Ohm), weight (g -> kg)
-    motor_df["rm"] = motor_df["rm"] / 1000.0
-    motor_df["weight"] = motor_df["weight"] / 1000.0
-
-    # 3. Create Propeller Sweep
-    diameters = range(16, 24)  # 16 to 23
-    pitches = range(6, 13)  # 6 to 12
-
-    props = []
-    for d, p in itertools.product(diameters, pitches):
-        # weight formula (kg): (12*diam + 4*pitch - 176) / 1000
-        w = (12 * d + 4 * p - 176) / 1000.0
-        props.append({"name": f"APC {d}x{p}E", "diam": d, "pitch": p, "weight": w})
+    # 3. Setup Results Directory
+    results_dir = "./.results"
+    if not os.path.exists(results_dir):
+        os.makedirs(results_dir)
 
     results = []
-
-    print(
-        f"{'Motor':<15} | {'Prop':<6} | {'PropWt':<6} | {'MotWt':<6} | {'TStatic':<8} | {'MTOW':<8} | {'Net MTOW':<8}"
-    )
-    print("-" * 85)
-
+    
+    # Pre-build combinations
+    combinations = []
     for _, motor in motor_df.iterrows():
+        motor_dict = motor.to_dict()
         for prop in props:
-            # Corrections to motor parameters
-            corr_kv = motor["kv"] * 1.05
-            corr_io = motor["io"] * (1 - 0.01 * motor["io_vref"])
-            corr_rm = (motor["rm"] * 0.95) * (1.035**3)
+            combinations.append((motor_dict, prop))
+            
+    total_combinations = len(combinations)
+    count = 0
 
-            # Initialize BLDCM Solver
-            solver = BLDCMSolver(
-                surrogate_model=surrogate_model,
-                kv=corr_kv,
-                i0=corr_io,
-                rm=corr_rm,
-                diameter=prop["diam"] * 0.0254,
-                pitch=prop["pitch"],
-            )
+    print("Starting parallel sweep (7 threads)...")
 
-            mtow, t_static = find_tow_for_combination(solver, params)
+    # 4. Multi-Thread Processing
+    with ThreadPoolExecutor(max_workers=7) as executor:
+        # Submit all tasks
+        future_to_combo = {
+            executor.submit(simulate_combination, m_dict, p_dict, params, surrogate_model): (m_dict, p_dict)
+            for m_dict, p_dict in combinations
+        }
 
-            if mtow is not None:
-                propulsion_wt = motor["weight"] + prop["weight"]
-                net_mtow = mtow - propulsion_wt
-                results.append(
-                    {
-                        "Motor": motor["name"],
-                        "Prop": prop["name"],
-                        "MTOW": mtow,
-                        "Propulsion_Wt": propulsion_wt,
-                        "Net_MTOW": net_mtow,
-                        "T_static": t_static,
-                    }
-                )
-                print(
-                    f"{motor['name']:<15} | {prop['name']:<6} | {prop['weight']:<6.3f} | {motor['weight']:<6.3f} | {t_static:<8.2f} | {mtow:<8.3f} | {net_mtow:<8.3f}"
-                )
+        # Handle completion in any order
+        for future in as_completed(future_to_combo):
+            count += 1
+            m_dict, p_dict = future_to_combo[future]
+            combo_str = f"{m_dict['name']} + {p_dict['name']}"
+            
+            try:
+                result = future.result()
+                if result is not None:
+                    results.append(result)
+            except Exception as exc:
+                print(f"Combination {combo_str} generated an exception: {exc}")
 
+            # 5. Iterative UI 
+            update_ui(count, total_combinations, results, combo_str, results_dir)
+
+    # 6. Saving Final Results
     df = pd.DataFrame(results)
     if not df.empty:
+        output_path = os.path.join(results_dir, "sweep_results.csv")
+        df.sort_values("Net_MTOW", ascending=False).to_csv(output_path, index=False)
+
         best = df.loc[df["Net_MTOW"].idxmax()]
         print("\n" + "=" * 40)
         print("BEST COMBINATION FOUND:")
@@ -110,6 +213,7 @@ def main():
         print(f"MTOW: {best['MTOW']:.3f} kg")
         print(f"Propulsion Weight: {best['Propulsion_Wt']:.3f} kg")
         print(f"Net MTOW: {best['Net_MTOW']:.3f} kg")
+        print(f"Results saved to: {output_path}")
         print("=" * 40)
 
 

@@ -152,11 +152,11 @@ def main():
     # Dummy parameters for demonstration
     solver = BLDCMSolver(
         surrogate_model=surrogate_model,
-        kv=320.0 * 1.05,
-        i0=1.0 * (1 + 0.01 * (BATT_VOLTAGE - 18.0)),
+        kv=190.0 * 1.05,
+        i0=1.3 * (1 + 0.01 * (BATT_VOLTAGE - 18.0)),
         rm=(0.048 * 0.95) * (1.035**3),
         diameter=22 * 0.0254,
-        pitch=10,
+        pitch=12,
     )
 
     target_power = 600.0  # Watts
