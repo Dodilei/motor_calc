@@ -12,14 +12,14 @@ class AircraftParameters:
     def __init__(self):
         self.g = 9.81
         self.rho = 1.225
-        self.S_wing = 0.9  # m^2 (Typical for 1.8m span)
-        self.CL_max = 1.7  # Max CL for air phase
-        self.CL_ground = 0.8  # CL during ground roll
-        self.CD_ground = 0.04  # Parasite drag + ground effect induction
-        self.CD_max = 0.20  # CD at CL_max
-        self.mu = 0.03  # Typical friction for grass/runway
+        self.S_wing = 0.774  # m^2 (Typical for 2m span)
+        self.CL_max = 1.6  # Max CL for air phase
+        self.CL_ground = 1.4  # CL during ground roll
+        self.CD_ground = 0.1  # Parasite drag + ground effect induction
+        self.CD_max = 0.21  # CD at CL_max
+        self.mu = 0.04  # Typical friction for grass/runway
         self.P_limit = 600.0  # Power limit in Watts
-        self.V_limit = 24.2   # Voltage limit in Volts
+        self.V_limit = 22.2  # Voltage limit in Volts
 
 
 class TakeoffSolver:
@@ -102,6 +102,7 @@ class TakeoffSolver:
                 D_total = D + self.p.mu * N
 
                 ax = (T - D_total) / m
+
                 ay = 0.0
                 # If we are on ground, vy must be 0 or positive if we just reached v_rotate
                 # But here we force 0 until rotate
@@ -127,7 +128,9 @@ class TakeoffSolver:
                 return np.array([vx, vy, ax, ay])
 
         step = 0
-        while state[1] < h_obs and step < max_steps:
+        while state[1] < h_obs:
+            if step >= max_steps:
+                return 999 if state[1] < h_obs else state[0]
             if state[0] > 150:  # Fail safe for runway length
                 return 150.1
 
@@ -157,11 +160,11 @@ def find_tow_for_distance(target_dist=55.0, use_fast_thrust=True):
     surrogate_model = PRSSurrogate.load(MODEL_PATH)
     bldcm_solver = BLDCMSolver(
         surrogate_model=surrogate_model,
-        kv=310,
-        i0=1.66,
-        rm=0.065,
-        diameter=18 * 0.0254,
-        pitch=8,
+        kv=68.25,
+        i0=2.4,
+        rm=0.027,
+        diameter=16 * 0.0254,
+        pitch=6,
     )
 
     params = AircraftParameters()
@@ -216,7 +219,9 @@ if __name__ == "__main__":
         print(s.getvalue())
     else:
         print(f"Starting TOW optimization (Fast Thrust: {use_fast})...")
-        print("Tip: Run with --profile to see performance analysis, or --slow to use iterative solver.")
+        print(
+            "Tip: Run with --profile to see performance analysis, or --slow to use iterative solver."
+        )
         optimal_tow = find_tow_for_distance(55.0, use_fast_thrust=use_fast)
 
     if optimal_tow:
