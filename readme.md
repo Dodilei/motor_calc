@@ -2,7 +2,7 @@
 
 This project provides a high-fidelity numerical simulation for aircraft takeoff performance, integrating a physics-based BLDC motor-propeller model with a dynamic trajectory solver.
 
-## 1. Propulsion Theory (BLDC + Propeller)
+## 1. Propulsion Theory (BLDC Motor + Propeller)
 
 The propulsion system's performance is determined by finding the equilibrium between the aerodynamic load of the propeller and the electrical characteristics of the BLDC motor.
 
@@ -33,7 +33,7 @@ $$I = I_0 + \frac{P_{prop} \cdot KV}{RPM} \tag{5}$$
 
 ### 1.3 Equilibrium Solver
 The `BLDCMSolver` uses a numerical root-finder (`scipy.optimize.brentq`) to find the equilibrium rotational speed ($RPM_{eq}$) where the motor's electrical power matches the propeller's mechanical requirement:
-$$f(RPM) = P_{in} - P_{target} = 0 \tag{6}$$
+$$f(RPM) = P_{in} - P_{prop} = 0 \tag{6}$$
 subject to battery voltage ($V_{limit}$) and electronic speed controller ($P_{limit}$) constraints.
 
 ---
@@ -67,6 +67,6 @@ $$f(m) = x(h=h_{obs}) - x_{max} = 0 \tag{13}$$
 
 ## 3. Usage
 
-- **Performance Sweep**: Run `sweep_propulsion.py` to compare different motor/propeller combinations and find the highest Net MTOW.
+- **Performance Sweep**: Run `sweep_propulsion.py` to compare different motor/propeller combinations and find the highest EE.
 - **Trajectory Analysis**: Run `takeoff.py` to simulate a specific mass and configuration.
 - **Motor Characterization**: Run `motor_operation.py` to generate performance plots (Efficiency, Thrust, RPM) vs forward speed.
