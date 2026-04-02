@@ -13,14 +13,14 @@ class AircraftParameters:
         self.g = 9.81
         self.rho = 1.225
         self.S_wing = 0.774  # m^2 (Typical for 2m span)
-        self.CL_max = 1.6  # Max CL for air phase
-        self.CL_ground = 1.4  # CL during ground roll
-        self.CD_ground = 0.1  # Parasite drag + ground effect induction
-        self.CD_max = 0.21  # CD at CL_max
+        self.CL_max = 1.969  # Max CL for air phase
+        self.CL_ground = 0.997  # CL during ground roll
+        self.CD_ground = 0.057  # Parasite drag + ground effect induction
+        self.CD_max = 0.199  # CD at CL_max
         self.mu = 0.04  # Typical friction for grass/runway
-        self.P_limit = 600.0  # Power limit in Watts
-        self.V_limit = 22.2  # Voltage limit in Volts
-        self.PV = 2.1  # Empty weight (kg) [without GMP]
+        self.P_limit = 590.0  # Power limit in Watts
+        self.V_limit = 23.0  # Voltage limit in Volts
+        self.PV = 2.2  # Empty weight (kg) [without GMP]
 
 
 class TakeoffSolver:
@@ -161,11 +161,11 @@ def find_tow_for_distance(target_dist=55.0, use_fast_thrust=True):
     surrogate_model = PRSSurrogate.load(MODEL_PATH)
     bldcm_solver = BLDCMSolver(
         surrogate_model=surrogate_model,
-        kv=68.25,
-        i0=2.4,
-        rm=0.027,
-        diameter=16 * 0.0254,
-        pitch=6,
+        kv=330,
+        i0=1.66,
+        rm=0.065,
+        diameter=18 * 0.0254,
+        pitch=8,
     )
 
     params = AircraftParameters()

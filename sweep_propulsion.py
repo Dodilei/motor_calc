@@ -63,6 +63,8 @@ def simulate_combination(motor_dict, prop_dict, params, surrogate_model):
         return {
             "Motor": motor_dict["name"],
             "Prop": prop_dict["name"],
+            "Diameter": prop_dict["diam"],
+            "Pitch": prop_dict["pitch"],
             "MTOW": mtow,
             "Propulsion_Wt": propulsion_wt,
             "Net_MTOW": net_mtow,
@@ -76,13 +78,21 @@ def simulate_combination(motor_dict, prop_dict, params, surrogate_model):
     return None
 
 
-def get_motors():
+def get_motors(databases=["./.data/tmotor_data.csv", "./.data/mad_motor_data.csv"]):
     # Load and Clean Motor Database
-    motor_df = pd.read_csv("./.data/tmotor_data.csv")
-    motor_df = motor_df.dropna(subset=["rm", "io", "kv", "io_vref"])
-    motor_df["rm"] = motor_df["rm"] / 1000.0
-    motor_df["weight"] = motor_df["weight"] / 1000.0
+    all_dfs = []
+    for db in databases:
+        # Load data with robustness to inconsistent line lengths (some files have extra metadata columns)
+        df = pd.read_csv(db, on_bad_lines="skip")
+        df = df.dropna(subset=["rm", "io", "kv", "io_vref"])
+
+        # Select consistent columns (Units are now standardized to Ohm and kg across all datasets)
+        cols = ["name", "kv", "io", "rm", "io_vref", "weight"]
+        all_dfs.append(df[cols])
+
+    motor_df = pd.concat(all_dfs, ignore_index=True)
     return motor_df
+
 
 
 def get_props():
@@ -139,7 +149,7 @@ def update_ui(count, total_combinations, results, last_combo_str, results_dir):
 
         # Periodic Save (every 100 iterations)
         if count % 100 == 0:
-            partial_path = os.path.join(results_dir, "sweep_results_partial.csv")
+            partial_path = os.path.join(results_dir, "sweep_results_v2_partial.csv")
             try:
                 df_temp.sort_values("EE", ascending=False).to_csv(
                     partial_path, index=False
@@ -219,7 +229,7 @@ def main():
     # 6. Saving Final Results
     df = pd.DataFrame(results)
     if not df.empty:
-        output_path = os.path.join(results_dir, "sweep_results.csv")
+        output_path = os.path.join(results_dir, "sweep_results_v2.csv")
         df.sort_values("EE", ascending=False).to_csv(output_path, index=False)
 
         best = df.loc[df["EE"].idxmax()]
