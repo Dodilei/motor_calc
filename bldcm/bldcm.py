@@ -50,7 +50,7 @@ class BLDCMSolver:
 
         # Calculate Motor Current
         v_est = n_rpm / self.kv + self.rm * (self.i0 + p_prop * self.kv) / n_rpm
-        i_motor = (self.i0 + (1 + 0.01 * v_est)) + (p_prop * self.kv) / n_rpm
+        i_motor = (self.i0 * (1 + 0.01 * v_est)) + (p_prop * self.kv) / n_rpm
 
         # Calculate Motor Voltage
         v_motor = (n_rpm / self.kv) + (i_motor * self.rm)
