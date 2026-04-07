@@ -18,7 +18,8 @@ class AircraftParameters:
         self.CD_max = 0.199
         self.mu = 0.04
         self.P_limit = 590.0
-        self.V_limit = 23.0
+        self.V_batt = 23.0
+        self.max_throttle = 1.0
         self.PV = 2.2
         for k, v in overrides.items():
             if not hasattr(self, k):
@@ -50,6 +51,8 @@ def build_parser():
         type=str,
         help="Motor name to look up from database (overrides --kv/--i0/--rm)",
     )
+    p.add_argument("--motor_wt", type=float, help="Motor weight (kg)")
+    p.add_argument("--prop_wt", type=float, help="Propeller weight (kg)")
 
     # Airplane parameters
     p.add_argument("--S_wing", type=float, help="Wing area (m^2)")
@@ -59,7 +62,8 @@ def build_parser():
     p.add_argument("--CD_max", type=float, help="CD at CL_max")
     p.add_argument("--mu", type=float, help="Ground friction coefficient")
     p.add_argument("--P_limit", type=float, help="Power limit (W)")
-    p.add_argument("--V_limit", type=float, help="Voltage limit (V)")
+    p.add_argument("--V_batt", type=float, help="Battery Voltage (V)")
+    p.add_argument("--throttle", type=float, help="Throttle limit (V)")
     p.add_argument("--PV", type=float, help="Empty weight without propulsion (kg)")
 
     # Simulation
@@ -92,7 +96,8 @@ def main():
         "CD_max",
         "mu",
         "P_limit",
-        "V_limit",
+        "V_batt",
+        "max_throttle",
         "PV",
     ]
     overrides = {
@@ -101,14 +106,17 @@ def main():
     params = AircraftParameters(**overrides)
 
     # Resolve propulsion parameters
+    motor_wt = args.motor_wt
     if args.motor and args.kv is not None:
         motor = lookup_motor(args.motor, args.kv)
         kv = motor["kv"]
         i0 = motor["io"]
         rm = motor["rm"]
         io_vref = motor["io_vref"]
+        if motor_wt is None:
+            motor_wt = motor["weight"]
         print(
-            f"Motor '{args.motor}': KV={kv} I0={i0} Rm={rm} io_vref={io_vref} Weight={motor['weight']}kg"
+            f"Motor '{args.motor}': KV={kv} I0={i0} Rm={rm} io_vref={io_vref} Weight={motor_wt}kg"
         )
     elif args.kv is not None and args.i0 is not None and args.rm is not None:
         kv = args.kv
@@ -119,8 +127,16 @@ def main():
         # Defaults (original takeoff.py values)
         kv, i0, rm, io_vref = 330, 1.66, 0.065, 0.0
 
+    if motor_wt is None:
+        motor_wt = 0.150  # Default fallback if not in DB and not provided
+
     diam = args.diam if args.diam is not None else 18
     pitch = args.pitch if args.pitch is not None else 8
+
+    prop_wt = args.prop_wt
+    if prop_wt is None:
+        # Formula from sweep_propulsion.py
+        prop_wt = (12 * diam + 4 * pitch - 176) / 1000.0
 
     # Apply corrections
     if not args.no_correction and io_vref > 0:
@@ -136,6 +152,7 @@ def main():
         rm=rm,
         diameter=diam * 0.0254,
         pitch=pitch,
+        rest_voltage=params.V_batt,
     )
 
     use_fast = not args.slow
@@ -149,10 +166,17 @@ def main():
             use_fast_thrust=use_fast,
         )
         if mtow:
+            propulsion_wt = motor_wt + prop_wt
+            total_pv = params.PV + propulsion_wt
+            ee = (mtow - total_pv) / total_pv
+
             print(
                 f"\nOptimal TOW for {args.target_dist}m runway: {mtow:.3f} kg (status: {status})"
             )
-            print(f"Structural efficiency: {(mtow - params.PV - )}")
+            print(
+                f"Propulsion Weight: {propulsion_wt:.3f} kg (Motor: {motor_wt:.3f}, Prop: {prop_wt:.3f})"
+            )
+            print(f"Structural Efficiency (EE): {ee:.3f}")
             print(f"Static thrust: {t_static:.2f} N")
         else:
             print("\nCould not find a valid TOW for the given constraints.")

@@ -27,7 +27,7 @@ class TakeoffSolver:
         for v in v_samples:
             try:
                 t = self.solver.solve_thrust(
-                    v, max_power=self.p.P_limit, max_voltage=self.p.V_limit
+                    v, max_power=self.p.P_limit, max_throttle=self.p.max_throttle
                 )
                 t_samples.append(t)
             except Exception:
@@ -43,7 +43,7 @@ class TakeoffSolver:
 
         try:
             return self.solver.solve_thrust(
-                v_inf=v_inf, max_power=self.p.P_limit, max_voltage=self.p.V_limit
+                v_inf=v_inf, max_power=self.p.P_limit, max_throttle=self.p.max_throttle
             )
         except Exception:
             return 0.0

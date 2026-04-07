@@ -1,9 +1,14 @@
 from scipy.optimize import brentq
 import numpy as np
 
-KV_EFF = 0.75
+KV_EFF = 0.85
 THRUST_EFF = 0.93
-MPOWER_EFF = 1.05
+MPOWER_EFF = 1
+
+ESC_RESIST = 0.003
+BATT_RESIST = 0.0075
+
+K_SWITCH = 0.01
 
 
 class BLDCMSolver:
@@ -16,6 +21,7 @@ class BLDCMSolver:
         diameter: float,
         pitch: float,
         rho: float = 1.225,
+        rest_voltage: float = 24,
     ):
         self.surrogate = surrogate_model
         self.kv = kv
@@ -24,6 +30,7 @@ class BLDCMSolver:
         self.diameter = diameter
         self.pitch = pitch
         self.rho = rho
+        self.rest_voltage = rest_voltage
 
     def _get_aero_coefficients(self, n_rpm: float, v_inf: float) -> tuple:
         # Construct input for the PRS surrogate
@@ -44,7 +51,7 @@ class BLDCMSolver:
         n_rpm: float,
         v_inf: float,
         target_power: float | None = None,
-        target_voltage: float | None = None,
+        target_dutycycle: float | None = None,
     ) -> float:
         cp, _ = self._get_aero_coefficients(n_rpm, v_inf)
 
@@ -60,25 +67,39 @@ class BLDCMSolver:
         # Calculate Motor Voltage
         v_motor = v_kv + (i_motor * self.rm)
 
-        p_in_calc = v_motor * i_motor
+        # ESC conductive losses
+        v_eff = v_motor + (i_motor * ESC_RESIST)
+
+        discriminant = self.rest_voltage**2 - 4 * (i_motor * BATT_RESIST) * v_eff
+        # Prevent NaN crashes from impossible optimizer guesses
+        discriminant = max(0.0, discriminant)
+        duty_cycle = (self.rest_voltage - np.sqrt(discriminant)) / (
+            2 * i_motor * BATT_RESIST
+        )
+
+        v_in_calc = self.rest_voltage - (duty_cycle * i_motor * BATT_RESIST)
+
+        switching_loss = K_SWITCH * v_in_calc * i_motor * duty_cycle * (1 - duty_cycle)
+
+        p_in_calc = v_in_calc * (duty_cycle * i_motor) + switching_loss
 
         if target_power is None:
-            return v_motor - target_voltage
-        elif target_voltage is None:
+            return duty_cycle - target_dutycycle
+        elif target_dutycycle is None:
             return p_in_calc - target_power
         else:
-            return max(v_motor - target_voltage, p_in_calc - target_power)
+            return max(duty_cycle - target_dutycycle, p_in_calc - target_power)
 
     def solve_thrust(
         self,
         v_inf: float,
         max_power: float | None = 600,
-        max_voltage: float | None = 24.2,
+        max_throttle: float | None = 1.0,
         rpm_bounds: tuple = (100, 15000),
         return_state: bool = False,
     ):
-        residualf_args = (v_inf, max_power, max_voltage)
-
+        residualf_args = (v_inf, max_power, max_throttle)
+        print(max_throttle)
         brentq_kwargs = {
             "f": self._residual,
             "a": rpm_bounds[0],
@@ -94,7 +115,7 @@ class BLDCMSolver:
 
         except ValueError:
             raise RuntimeError(
-                f"Could not find equilibrium for ({max_power},{max_voltage}) at {v_inf} within RPM bounds."
+                f"Could not find equilibrium for ({max_power},{max_throttle}) at {v_inf} within RPM bounds."
             )
 
         # Retrieve final state at equilibrium
@@ -110,21 +131,46 @@ class BLDCMSolver:
             p_prop = MPOWER_EFF * cp * self.rho * (n_rps**3) * (self.diameter**5)
             j_adv = v_inf / (n_rps * self.diameter) if v_inf > 0 else 0.0
 
-            # Final Electrical metrics
+            # Calculate Motor Current
             v_kv = n_eq / (KV_EFF * self.kv)
             v_est = v_kv + self.rm * (self.i0 + p_prop / v_kv)
-            i_eq = (self.i0 * (1 + 0.01 * v_est)) + (p_prop / v_kv)
-            v_eq = v_kv + (i_eq * self.rm)
-            efficiency = p_prop / (v_eq * i_eq)
+            i_motor = (self.i0 * (1 + 0.01 * v_est)) + (p_prop / v_kv)
 
+            # Calculate Motor Voltage
+            v_motor = v_kv + (i_motor * self.rm)
+
+            # ESC conductive losses
+            v_eff = v_motor + (i_motor * ESC_RESIST)
+
+            discriminant = self.rest_voltage**2 - 4 * (i_motor * BATT_RESIST) * v_eff
+            # Prevent NaN crashes from impossible optimizer guesses
+            discriminant = max(0.0, discriminant)
+            duty_cycle = (self.rest_voltage - np.sqrt(discriminant)) / (
+                2 * i_motor * BATT_RESIST
+            )
+
+            v_in_calc = self.rest_voltage - (duty_cycle * i_motor * BATT_RESIST)
+
+            switching_loss = (
+                K_SWITCH * v_in_calc * i_motor * duty_cycle * (1 - duty_cycle)
+            )
+
+            p_in_calc = v_in_calc * (duty_cycle * i_motor) + switching_loss
+
+            efficiency = p_prop / p_in_calc
+            print(v_eff, v_in_calc, switching_loss)
+            print(v_eff * i_motor, p_in_calc)
             return {
                 "RPM": n_eq,
-                "Voltage_V": v_eq,
-                "Current_A": i_eq,
+                "Voltage_V": v_in_calc,
+                "Duty_Cycle_D": duty_cycle,
+                "Motor_Current_A": i_motor,
+                "Batt_Current_A": (duty_cycle * i_motor),
+                "Throttle_t": duty_cycle,
                 "Thrust_N": thrust,
                 "Efficiency": efficiency,
                 "Advance_Ratio_J": j_adv,
-                "P_el": v_eq * i_eq,
+                "P_el": p_in_calc,
                 "P_prop_W": p_prop,
                 "cp": cp,
             }

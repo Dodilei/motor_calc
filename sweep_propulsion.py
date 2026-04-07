@@ -11,15 +11,16 @@ class AircraftParameters:
     def __init__(self, **overrides):
         self.g = 9.81
         self.rho = 1.225
-        self.S_wing = 0.8
+        self.S_wing = 1
         self.CL_max = 1.969
         self.CL_ground = 0.997
         self.CD_ground = 0.057
         self.CD_max = 0.199
         self.mu = 0.04
-        self.P_limit = 590.0
-        self.V_limit = 23.0
-        self.PV = 2.2
+        self.P_limit = 600.0
+        self.V_batt = 24 * 0.82
+        self.max_throttle = 1
+        self.PV = 1.9
         for k, v in overrides.items():
             if not hasattr(self, k):
                 raise ValueError(f"Unknown parameter: {k}")
@@ -41,6 +42,7 @@ def simulate_combination(motor_dict, prop_dict, params, surrogate_model):
         rm=corr_rm,
         diameter=prop_dict["diam"] * 0.0254,
         pitch=prop_dict["pitch"],
+        rest_voltage=params.V_batt,
     )
 
     mtow, t_static, status = find_tow(
@@ -178,7 +180,8 @@ def build_parser():
     p.add_argument("--CD_max", type=float, help="CD at CL_max")
     p.add_argument("--mu", type=float, help="Ground friction coefficient")
     p.add_argument("--P_limit", type=float, help="Power limit (W)")
-    p.add_argument("--V_limit", type=float, help="Voltage limit (V)")
+    p.add_argument("--V_batt", type=float, help="Battery Voltage (V)")
+    p.add_argument("--throttle", type=float, help="Throttle limit")
     p.add_argument("--PV", type=float, help="Empty weight without propulsion (kg)")
     return p
 
@@ -196,7 +199,8 @@ def main():
         "CD_max",
         "mu",
         "P_limit",
-        "V_limit",
+        "V_batt",
+        "max_throttle",
         "PV",
     ]
     overrides = {
@@ -205,7 +209,7 @@ def main():
     params = AircraftParameters(**overrides)
 
     surrogate_model = load_surrogate()
-    motor_df = get_motors()
+    motor_df = get_motors(databases=["./.data/selected_motors.csv"])
     props = get_props()
 
     results_dir = "./.results"

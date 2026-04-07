@@ -10,22 +10,21 @@ from surrogate.prs import PRSSurrogate
 BATT_VOLTAGE = 23.5
 
 
-def sweep_voltage(
-    solver, max_power: float | None, voltage_range: np.ndarray
+def sweep_throttle(
+    solver, max_power: float | None, throttle_range: np.ndarray
 ) -> pd.DataFrame:
     results = []
     v_inf = 0.0  # Static test
 
-    for voltage in voltage_range:
-        if voltage <= 0:
+    for throttle in throttle_range:
+        if throttle <= 0:
             continue
         try:
-            # Set max_power to None if we purely want to sweep voltage without power cap
-            state = solver.solve_thrust(v_inf, max_power, voltage, return_state=True)
-            state["Target_Voltage"] = voltage
+            # Set max_power to None if we purely want to sweep throttle without power cap
+            state = solver.solve_thrust(v_inf, max_power, throttle, return_state=True)
             results.append(state)
         except RuntimeError as e:
-            print(f"Solver failed at Voltage = {voltage:.2f} V: {e}")
+            print(f"Solver failed at Throttle = {throttle:.2f}: {e}")
 
     return pd.DataFrame(results)
 
@@ -34,25 +33,25 @@ def plot_bldc_static_performance(df: pd.DataFrame):
     sns.set_theme(style="whitegrid", context="paper", font_scale=1.1)
     fig, axes = plt.subplots(3, 2, figsize=(14, 12))
     fig.suptitle(
-        "BLDC-Propeller Static Test Performance (varying voltage)",
+        "BLDC-Propeller Static Test Performance (varying throttle)",
         fontsize=16,
     )
 
-    x_axis = "Target_Voltage"
+    x_axis = "Throttle_t"
 
-    # 1. Thrust vs Voltage
+    # 1. Thrust vs Throttle
     sns.lineplot(data=df, x=x_axis, y="Thrust_N", ax=axes[0, 0], color="b", linewidth=2)
     axes[0, 0].set_ylabel("Thrust (N)")
-    axes[0, 0].set_xlabel("Target Voltage (V)")
+    axes[0, 0].set_xlabel("Target Throttle")
     axes[0, 0].set_title("Thrust Generation")
 
-    # 2. RPM vs Voltage
+    # 2. RPM vs Throttle
     sns.lineplot(data=df, x=x_axis, y="RPM", ax=axes[0, 1], color="r", linewidth=2)
     axes[0, 1].set_ylabel("RPM")
-    axes[0, 1].set_xlabel("Target Voltage (V)")
+    axes[0, 1].set_xlabel("Target Throttle")
     axes[0, 1].set_title("Equilibrium RPM")
 
-    # 3. Efficiency & Power vs Voltage
+    # 3. Efficiency & Power vs Throttle
     ax_eff = axes[1, 0]
     sns.lineplot(
         data=df,
@@ -64,7 +63,7 @@ def plot_bldc_static_performance(df: pd.DataFrame):
         label="Efficiency",
     )
     ax_eff.set_ylabel("Efficiency")
-    ax_eff.set_xlabel("Target Voltage (V)")
+    ax_eff.set_xlabel("Target Throttle")
     ax_eff.set_title("Efficiency & Power Distribution")
 
     ax_p_el = ax_eff.twinx()
@@ -137,7 +136,7 @@ def plot_bldc_static_performance(df: pd.DataFrame):
         BATT_VOLTAGE, color="red", linestyle="--", alpha=0.7, label="6S Limit"
     )
     ax_volt.set_ylabel("Voltage (V)")
-    ax_volt.set_xlabel("Target Voltage (V)")
+    ax_volt.set_xlabel("Target Throttle")
     ax_volt.set_title("Electrical Telemetry")
     ax_volt.set_ylim(0, max(BATT_VOLTAGE, df["Voltage_V"].max()) * 1.1)
 
@@ -145,10 +144,10 @@ def plot_bldc_static_performance(df: pd.DataFrame):
     sns.lineplot(
         data=df,
         x=x_axis,
-        y="Current_A",
+        y="Batt_Current_A",
         ax=ax_curr,
         color="crimson",
-        label="Current (A)",
+        label="Battery Current (A)",
     )
     ax_curr.set_ylabel("Current (A)")
     ax_curr.grid(False)  # Avoid cluttered grid lines
@@ -186,12 +185,13 @@ def main():
         rm=0.0421,
         diameter=22 * 0.0254,
         pitch=6.6,
+        rest_voltage=BATT_VOLTAGE,
     )
 
     max_power = None  # No power cap for static sweep unless desired
-    voltages = np.linspace(1, BATT_VOLTAGE, 24)  # 1V to 24V
+    throttles = np.linspace(0.1, 1.0, 24)  # 10% to 100% throttle
 
-    df_results = sweep_voltage(solver, max_power, voltages)
+    df_results = sweep_throttle(solver, max_power, throttles)
     print(df_results.head())
     plot_bldc_static_performance(df_results)
 
