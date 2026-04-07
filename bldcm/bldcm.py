@@ -1,6 +1,10 @@
 from scipy.optimize import brentq
 import numpy as np
 
+KV_EFF = 0.75
+THRUST_EFF = 0.93
+MPOWER_EFF = 1.05
+
 
 class BLDCMSolver:
     def __init__(
@@ -46,14 +50,15 @@ class BLDCMSolver:
 
         # Calculate Propeller Power (Aerodynamic Load)
         n_rps = n_rpm / 60.0
-        p_prop = cp * self.rho * (n_rps**3) * (self.diameter**5)
+        p_prop = MPOWER_EFF * cp * self.rho * (n_rps**3) * (self.diameter**5)
 
         # Calculate Motor Current
-        v_est = n_rpm / self.kv + self.rm * (self.i0 + p_prop * self.kv) / n_rpm
-        i_motor = (self.i0 * (1 + 0.01 * v_est)) + (p_prop * self.kv) / n_rpm
+        v_kv = n_rpm / (KV_EFF * self.kv)
+        v_est = v_kv + self.rm * (self.i0 + p_prop / v_kv)
+        i_motor = (self.i0 * (1 + 0.01 * v_est)) + (p_prop / v_kv)
 
         # Calculate Motor Voltage
-        v_motor = (n_rpm / self.kv) + (i_motor * self.rm)
+        v_motor = v_kv + (i_motor * self.rm)
 
         p_in_calc = v_motor * i_motor
 
@@ -97,18 +102,19 @@ class BLDCMSolver:
         n_rps = n_eq / 60.0
 
         # Final Aerodynamic metrics
-        thrust = ct * self.rho * (n_rps**2) * (self.diameter**4)
+        thrust = THRUST_EFF * ct * self.rho * (n_rps**2) * (self.diameter**4)
 
         if not return_state:
             return thrust
         else:
-            p_prop = cp * self.rho * (n_rps**3) * (self.diameter**5)
+            p_prop = MPOWER_EFF * cp * self.rho * (n_rps**3) * (self.diameter**5)
             j_adv = v_inf / (n_rps * self.diameter) if v_inf > 0 else 0.0
 
             # Final Electrical metrics
-            v_est = n_eq / self.kv + self.rm * (self.i0 + p_prop * self.kv) / n_eq
-            i_eq = (self.i0 + (1 + 0.01 * v_est)) + (p_prop * self.kv) / n_eq
-            v_eq = (n_eq / self.kv) + (i_eq * self.rm)
+            v_kv = n_eq / (KV_EFF * self.kv)
+            v_est = v_kv + self.rm * (self.i0 + p_prop / v_kv)
+            i_eq = (self.i0 * (1 + 0.01 * v_est)) + (p_prop / v_kv)
+            v_eq = v_kv + (i_eq * self.rm)
             efficiency = p_prop / (v_eq * i_eq)
 
             return {
