@@ -7,18 +7,18 @@ from bldcm.bldcm import BLDCMSolver
 from propeller_surrogate import MODEL_PATH
 from surrogate.prs import PRSSurrogate
 
-BATT_VOLTAGE = 22.2
+BATT_VOLTAGE = 24
 
 
 def sweep_forward_speed(
-    solver, p_in_target: float, max_voltage: float, v_inf_range: np.ndarray
+    solver, p_in_target: float, max_throttle: float, v_inf_range: np.ndarray
 ) -> pd.DataFrame:
     results = []
 
     for v_inf in v_inf_range:
         try:
             state = solver.solve_thrust(
-                v_inf, p_in_target, max_voltage, return_state=True
+                v_inf, p_in_target, max_throttle, return_state=True
             )
             state["V_inf"] = v_inf
             results.append(state)
@@ -74,7 +74,8 @@ def plot_bldc_performance(df: pd.DataFrame, p_in_target: float):
         label="P_el (W)",
     )
     ax_p_el.set_ylabel("Electrical Power (W)")
-    ax_p_el.set_ylim(0, max(p_in_target, df["P_el"].max()) * 1.1)
+    if p_in_target is not None:
+        ax_p_el.set_ylim(0, max(p_in_target, df["P_el"].max()) * 1.1)
     ax_p_el.grid(False)  # Avoid cluttered grid lines
 
     # Merge legends for Plot 3
@@ -116,7 +117,7 @@ def plot_bldc_performance(df: pd.DataFrame, p_in_target: float):
     sns.lineplot(
         data=df,
         x="V_inf",
-        y="Current_A",
+        y="Batt_Current_A",
         ax=ax_curr,
         color="crimson",
         label="Current (A)",
@@ -152,17 +153,18 @@ def main():
     # Dummy parameters for demonstration
     solver = BLDCMSolver(
         surrogate_model=surrogate_model,
-        kv=190.0 * 1.05,
-        i0=1.3 * (1 + 0.01 * (BATT_VOLTAGE - 18.0)),
-        rm=(0.048 * 0.95) * (1.035**3),
+        kv=336,
+        i0=0.833,
+        rm=0.0421,
         diameter=22 * 0.0254,
-        pitch=12,
+        pitch=10,
+        rest_voltage=BATT_VOLTAGE,
     )
 
-    target_power = 600.0  # Watts
+    target_power = 590  # 590.0  # Watts
     speeds = np.linspace(0, 20, 20)  # 0 to 30 m/s
 
-    df_results = sweep_forward_speed(solver, target_power, BATT_VOLTAGE, speeds)
+    df_results = sweep_forward_speed(solver, target_power, 1, speeds)
     print(df_results.head())
     plot_bldc_performance(df_results, target_power)
 

@@ -2,9 +2,16 @@ import argparse
 import cProfile
 import pstats
 import io
+import numpy as np
+import matplotlib.pyplot as plt
 
 from bldcm.bldcm import BLDCMSolver
 from takeoff import apply_corrections, find_tow, load_surrogate, lookup_motor
+
+# Constants for motor temperature dynamics
+T_AMBIENT = 30.0  # Celsius
+C_P = 0.55  # Specific heat of motor (Joules / gram*Kelvin)
+# ALPHA_CU = 0.00393  # Temperature coefficient of copper
 
 
 class AircraftParameters:
@@ -97,7 +104,7 @@ def main():
         "mu",
         "P_limit",
         "V_batt",
-        "max_throttle",
+        "throttle",
         "PV",
     ]
     overrides = {
@@ -178,8 +185,115 @@ def main():
             )
             print(f"Structural Efficiency (EE): {ee:.3f}")
             print(f"Static thrust: {t_static:.2f} N")
+
+            # Plot simulation history
+            plot_takeoff_history(solver, params, mtow, motor_wt)
+
         else:
             print("\nCould not find a valid TOW for the given constraints.")
+
+    def plot_takeoff_history(solver, params, mass, motor_wt, dt=0.01):
+        from takeoff import TakeoffSolver
+
+        sim = TakeoffSolver(
+            solver, params, use_fast_thrust=True
+        )  # Use slow for better history accuracy
+
+        print("Simulating final takeoff run with history tracking...")
+        dist, history = sim.simulate(mass, track_history=True, dt=dt)
+
+        # Plotting
+        x = [h["x"] for h in history]
+
+        fig = plt.figure(figsize=(12, 12), dpi=80)
+        
+        gs = fig.add_gridspec(3, 2)
+        ax1 = fig.add_subplot(gs[0, 0])
+        ax2 = fig.add_subplot(gs[0, 1])
+        ax3 = fig.add_subplot(gs[1, 0])
+        ax4 = fig.add_subplot(gs[1, 1])
+        ax5 = fig.add_subplot(gs[2, 0])
+        ax6 = fig.add_subplot(gs[2, 1])
+
+        color1 = "tab:blue"
+        ax1.set_xlabel("Runway Position (m)")
+        ax1.set_ylabel("Speed (m/s)", color=color1)
+        ax1.plot(x, [h["v_mag"] for h in history], color=color1)
+        ax1.tick_params(axis="y", labelcolor=color1)
+        ax1_twin = ax1.twinx()
+        color2 = "tab:orange"
+        ax1_twin.set_ylabel("Advance Ratio (J)", color=color2)
+        ax1_twin.plot(x, [h.get("Advance_Ratio_J", 0) for h in history], color=color2)
+        ax1_twin.tick_params(axis="y", labelcolor=color2)
+        ax1.set_title("Speed and Advance Ratio")
+
+        color1 = "tab:green"
+        ax2.set_xlabel("Runway Position (m)")
+        ax2.set_ylabel("Thrust (N)", color=color1)
+        ax2.plot(x, [h.get("Thrust_N", 0) for h in history], color=color1)
+        ax2.tick_params(axis="y", labelcolor=color1)
+        ax2_twin = ax2.twinx()
+        color2 = "tab:red"
+        ax2_twin.set_ylabel("RPM", color=color2)
+        ax2_twin.plot(x, [h.get("RPM", 0) for h in history], color=color2)
+        ax2_twin.tick_params(axis="y", labelcolor=color2)
+        ax2.set_title("Thrust and RPM")
+
+        color1 = "tab:purple"
+        ax3.set_xlabel("Runway Position (m)")
+        ax3.set_ylabel("Motor Current (A)", color=color1)
+        i_mot = [h.get("Motor_Current_A", 0) for h in history]
+        ax3.plot(x, i_mot, color=color1)
+        ax3.tick_params(axis="y", labelcolor=color1)
+        
+        ax3_twin = ax3.twinx()
+        color2 = "tab:gray"
+        ax3_twin.set_ylabel("Throttle", color=color2)
+        throttles = [h.get("Throttle_t", 0) for h in history]
+        ax3_twin.plot(x, throttles, color=color2)
+        ax3_twin.tick_params(axis="y", labelcolor=color2)
+        
+        ax3.set_title("Motor Current and Throttle")
+        i_min_mot = min(i_mot or [0])
+        i_max_mot = max(i_mot or [0])
+        ax3.set_ylim(0.7 * i_min_mot, 1.2 * i_max_mot)
+        t_min = min(throttles or [0]) * 0.9
+        ax3_twin.set_ylim(t_min, 1.0)
+
+        color1 = "tab:brown"
+        ax4.set_xlabel("Runway Position (m)")
+        ax4.set_ylabel("Battery Current (A)", color=color1)
+        i_batt = [h.get("Batt_Current_A", 0) for h in history]
+        ax4.plot(x, i_batt, color=color1)
+        ax4.tick_params(axis="y", labelcolor=color1)
+        
+        ax4_twin = ax4.twinx()
+        color2 = "tab:pink"
+        ax4_twin.set_ylabel("Voltage (V)", color=color2)
+        ax4_twin.plot(x, [h.get("Voltage_V", 0) for h in history], color=color2)
+        ax4_twin.tick_params(axis="y", labelcolor=color2)
+        
+        ax4.set_title("Battery Current and Voltage")
+        i_min_batt = min(i_batt or [0])
+        i_max_batt = max(i_batt or [0])
+        ax4.set_ylim(0.7 * i_min_batt, 1.2 * i_max_batt)
+        ax4_twin.set_ylim(0.5 * params.V_batt, 1.1 * params.V_batt)
+
+        ax5.set_xlabel("Runway Position (m)")
+        ax5.set_ylabel("Motor Temperature (°C)")
+        T_motor = [
+            T_AMBIENT + h.get("Qnorm", 0) / (1000 * motor_wt) / C_P for h in history
+        ]
+        ax5.plot(x, T_motor, color="tab:olive")
+        ax5.set_title("Motor Temperature")
+
+        ax6.set_xlabel("Runway Position (m)")
+        ax6.set_ylabel("Height (m)")
+        ax6.plot(x, [h["y"] for h in history], color="tab:cyan")
+        ax6.set_title("Height")
+
+        plt.tight_layout()
+        plt.show()
 
     if args.profile:
         print(f"Starting TOW optimization with profiling (Fast Thrust: {use_fast})...")

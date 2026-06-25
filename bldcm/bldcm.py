@@ -1,14 +1,14 @@
 from scipy.optimize import brentq
 import numpy as np
 
-KV_EFF = 0.85
+KV_EFF = 0.8
 THRUST_EFF = 0.93
 MPOWER_EFF = 1
 
 ESC_RESIST = 0.003
 BATT_RESIST = 0.0075
 
-K_SWITCH = 0.01
+K_SWITCH = 0.02
 
 
 class BLDCMSolver:
@@ -59,13 +59,19 @@ class BLDCMSolver:
         n_rps = n_rpm / 60.0
         p_prop = MPOWER_EFF * cp * self.rho * (n_rps**3) * (self.diameter**5)
 
-        # Calculate Motor Current
-        v_kv = n_rpm / (KV_EFF * self.kv)
-        v_est = v_kv + self.rm * (self.i0 + p_prop / v_kv)
-        i_motor = (self.i0 * (1 + 0.01 * v_est)) + (p_prop / v_kv)
+        # TRUE back-emf used strictly for Torque/Current calculation (Kt is fixed)
+        v_kv_true = n_rpm / self.kv
 
-        # Calculate Motor Voltage
-        v_motor = v_kv + (i_motor * self.rm)
+        # EFFECTIVE back-emf used for Voltage calculation (accounts for inductance/timing)
+        v_kv_eff = n_rpm / (KV_EFF * self.kv)
+
+        # 3. Calculate Motor Current (Using True Kt)
+        # Current depends on physical torque, not effective voltage
+        v_est = v_kv_eff + self.rm * (self.i0 + p_prop / v_kv_true)
+        i_motor = (self.i0 * (1 + 0.01 * v_est)) + (p_prop / v_kv_true)
+
+        # 4. Calculate Motor Voltage (Using Effective Kv)
+        v_motor = v_kv_eff + (i_motor * self.rm)
 
         # ESC conductive losses
         v_eff = v_motor + (i_motor * ESC_RESIST)
@@ -99,7 +105,6 @@ class BLDCMSolver:
         return_state: bool = False,
     ):
         residualf_args = (v_inf, max_power, max_throttle)
-        print(max_throttle)
         brentq_kwargs = {
             "f": self._residual,
             "a": rpm_bounds[0],
@@ -131,13 +136,19 @@ class BLDCMSolver:
             p_prop = MPOWER_EFF * cp * self.rho * (n_rps**3) * (self.diameter**5)
             j_adv = v_inf / (n_rps * self.diameter) if v_inf > 0 else 0.0
 
-            # Calculate Motor Current
-            v_kv = n_eq / (KV_EFF * self.kv)
-            v_est = v_kv + self.rm * (self.i0 + p_prop / v_kv)
-            i_motor = (self.i0 * (1 + 0.01 * v_est)) + (p_prop / v_kv)
+            # TRUE back-emf used strictly for Torque/Current calculation (Kt is fixed)
+            v_kv_true = n_eq / self.kv
 
-            # Calculate Motor Voltage
-            v_motor = v_kv + (i_motor * self.rm)
+            # EFFECTIVE back-emf used for Voltage calculation (accounts for inductance/timing)
+            v_kv_eff = n_eq / (KV_EFF * self.kv)
+
+            # 3. Calculate Motor Current (Using True Kt)
+            # Current depends on physical torque, not effective voltage
+            v_est = v_kv_eff + self.rm * (self.i0 + p_prop / v_kv_true)
+            i_motor = (self.i0 * (1 + 0.01 * v_est)) + (p_prop / v_kv_true)
+
+            # 4. Calculate Motor Voltage (Using Effective Kv)
+            v_motor = v_kv_eff + (i_motor * self.rm)
 
             # ESC conductive losses
             v_eff = v_motor + (i_motor * ESC_RESIST)
@@ -158,8 +169,7 @@ class BLDCMSolver:
             p_in_calc = v_in_calc * (duty_cycle * i_motor) + switching_loss
 
             efficiency = p_prop / p_in_calc
-            print(v_eff, v_in_calc, switching_loss)
-            print(v_eff * i_motor, p_in_calc)
+
             return {
                 "RPM": n_eq,
                 "Voltage_V": v_in_calc,
@@ -167,6 +177,7 @@ class BLDCMSolver:
                 "Motor_Current_A": i_motor,
                 "Batt_Current_A": (duty_cycle * i_motor),
                 "Throttle_t": duty_cycle,
+                "Conduction_Loss_Q": i_motor**2 * self.rm,
                 "Thrust_N": thrust,
                 "Efficiency": efficiency,
                 "Advance_Ratio_J": j_adv,

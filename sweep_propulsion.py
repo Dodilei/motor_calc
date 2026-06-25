@@ -4,21 +4,21 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from bldcm.bldcm import BLDCMSolver
-from takeoff import TakeoffSolver, apply_corrections, find_tow, load_surrogate
+from takeoff import apply_corrections, find_tow, load_surrogate
 
 
 class AircraftParameters:
     def __init__(self, **overrides):
         self.g = 9.81
         self.rho = 1.225
-        self.S_wing = 1
+        self.S_wing = 0.77
         self.CL_max = 1.969
         self.CL_ground = 0.997
         self.CD_ground = 0.057
         self.CD_max = 0.199
         self.mu = 0.04
         self.P_limit = 600.0
-        self.V_batt = 24 * 0.82
+        self.V_batt = 23.5
         self.max_throttle = 1
         self.PV = 1.9
         for k, v in overrides.items():
@@ -181,7 +181,7 @@ def build_parser():
     p.add_argument("--mu", type=float, help="Ground friction coefficient")
     p.add_argument("--P_limit", type=float, help="Power limit (W)")
     p.add_argument("--V_batt", type=float, help="Battery Voltage (V)")
-    p.add_argument("--throttle", type=float, help="Throttle limit")
+    p.add_argument("--throttle", dest="max_throttle", type=float, help="Throttle limit")
     p.add_argument("--PV", type=float, help="Empty weight without propulsion (kg)")
     return p
 
@@ -209,7 +209,7 @@ def main():
     params = AircraftParameters(**overrides)
 
     surrogate_model = load_surrogate()
-    motor_df = get_motors(databases=["./.data/selected_motors.csv"])
+    motor_df = get_motors(databases=["./.data/all_motor.csv"])
     props = get_props()
 
     results_dir = "./.results"

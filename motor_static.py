@@ -14,7 +14,7 @@ def sweep_throttle(
     solver, max_power: float | None, throttle_range: np.ndarray
 ) -> pd.DataFrame:
     results = []
-    v_inf = 0.0  # Static test
+    v_inf = 0  # Static test
 
     for throttle in throttle_range:
         if throttle <= 0:
@@ -181,10 +181,10 @@ def main():
     solver = BLDCMSolver(
         surrogate_model=surrogate_model,
         kv=336,
-        i0=0.833,
-        rm=0.0421,
-        diameter=22 * 0.0254,
-        pitch=6.6,
+        i0=1.142,
+        rm=0.039,
+        diameter=21 * 0.0254,
+        pitch=6.3,
         rest_voltage=BATT_VOLTAGE,
     )
 
