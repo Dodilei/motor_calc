@@ -1,3 +1,6 @@
-.*/*
+.*
+!.standalone/
+!.standalone/**
 */__pycache__/*
 *.pyc
+*.png

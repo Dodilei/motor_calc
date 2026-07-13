@@ -4,10 +4,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from bldcm.bldcm import BLDCMSolver
-from propeller_surrogate import MODEL_PATH
-from surrogate.prs import PRSSurrogate
-
-BATT_VOLTAGE = 23.5
+from motor_db import load_surrogate
+from aircraft_params import AircraftParameters
 
 
 def sweep_throttle(
@@ -29,7 +27,7 @@ def sweep_throttle(
     return pd.DataFrame(results)
 
 
-def plot_bldc_static_performance(df: pd.DataFrame):
+def plot_bldc_static_performance(df: pd.DataFrame, V_batt: float):
     sns.set_theme(style="whitegrid", context="paper", font_scale=1.1)
     fig, axes = plt.subplots(3, 2, figsize=(14, 12))
     fig.suptitle(
@@ -119,7 +117,7 @@ def plot_bldc_static_performance(df: pd.DataFrame):
     # Merge legends for Plot 4
     lines_e, labels_e = ax_rpm_eff.get_legend_handles_labels()
     lines_p, labels_p = ax_rpm_p.get_legend_handles_labels()
-    ax_rpm_eff.legend(lines_e + labels_p, labels_e + labels_p, loc="upper left")
+    ax_rpm_eff.legend(lines_e + lines_p, labels_e + labels_p, loc="upper left")
     ax_rpm_p.get_legend().remove()
 
     # 5. Electrical Telemetry (Actual Voltage & Current)
@@ -133,12 +131,12 @@ def plot_bldc_static_performance(df: pd.DataFrame):
         label="Actual Voltage (V)",
     )
     ax_volt.axhline(
-        BATT_VOLTAGE, color="red", linestyle="--", alpha=0.7, label="6S Limit"
+        V_batt, color="red", linestyle="--", alpha=0.7, label="6S Limit"
     )
     ax_volt.set_ylabel("Voltage (V)")
     ax_volt.set_xlabel("Target Throttle")
     ax_volt.set_title("Electrical Telemetry")
-    ax_volt.set_ylim(0, max(BATT_VOLTAGE, df["Voltage_V"].max()) * 1.1)
+    ax_volt.set_ylim(0, max(V_batt, df["Voltage_V"].max()) * 1.1)
 
     ax_curr = ax_volt.twinx()
     sns.lineplot(
@@ -168,14 +166,15 @@ def plot_bldc_static_performance(df: pd.DataFrame):
     ax_thrust_rpm.set_title("Thrust vs RPM")
 
     plt.tight_layout()
-    plt.savefig("motor_static_performance.png")
-    print("Plot saved to motor_static_performance.png")
+    plt.savefig(".plots/motor_static_performance.png")
+    print("Plot saved to .plots/motor_static_performance.png")
     plt.show()
 
 
 def main():
+    params = AircraftParameters()
     # Example Initialization (Requires the trained PRS surrogate and BLDCEquilibriumSolver)
-    surrogate_model = PRSSurrogate.load(MODEL_PATH)
+    surrogate_model = load_surrogate()
 
     # Dummy parameters for demonstration
     solver = BLDCMSolver(
@@ -185,7 +184,7 @@ def main():
         rm=0.039,
         diameter=21 * 0.0254,
         pitch=6.3,
-        rest_voltage=BATT_VOLTAGE,
+        rest_voltage=params.V_batt,
     )
 
     max_power = None  # No power cap for static sweep unless desired
@@ -193,7 +192,7 @@ def main():
 
     df_results = sweep_throttle(solver, max_power, throttles)
     print(df_results.head())
-    plot_bldc_static_performance(df_results)
+    plot_bldc_static_performance(df_results, params.V_batt)
 
 
 if __name__ == "__main__":

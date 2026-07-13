@@ -20,8 +20,8 @@ class BLDCMSolver:
         rm: float,
         diameter: float,
         pitch: float,
+        rest_voltage: float,
         rho: float = 1.225,
-        rest_voltage: float = 24,
     ):
         self.surrogate = surrogate_model
         self.kv = kv
@@ -46,31 +46,21 @@ class BLDCMSolver:
 
         return cp, ct
 
-    def _residual(
-        self,
-        n_rpm: float,
-        v_inf: float,
-        target_power: float | None = None,
-        target_dutycycle: float | None = None,
-    ) -> float:
-        cp, _ = self._get_aero_coefficients(n_rpm, v_inf)
-
-        # Calculate Propeller Power (Aerodynamic Load)
-        n_rps = n_rpm / 60.0
-        p_prop = MPOWER_EFF * cp * self.rho * (n_rps**3) * (self.diameter**5)
-
+    def _compute_electrical_state(
+        self, n_rpm: float, cp: float, p_prop: float
+    ) -> tuple:
         # TRUE back-emf used strictly for Torque/Current calculation (Kt is fixed)
         v_kv_true = n_rpm / self.kv
 
         # EFFECTIVE back-emf used for Voltage calculation (accounts for inductance/timing)
         v_kv_eff = n_rpm / (KV_EFF * self.kv)
 
-        # 3. Calculate Motor Current (Using True Kt)
+        # Calculate Motor Current (Using True Kt)
         # Current depends on physical torque, not effective voltage
         v_est = v_kv_eff + self.rm * (self.i0 + p_prop / v_kv_true)
         i_motor = (self.i0 * (1 + 0.01 * v_est)) + (p_prop / v_kv_true)
 
-        # 4. Calculate Motor Voltage (Using Effective Kv)
+        # Calculate Motor Voltage (Using Effective Kv)
         v_motor = v_kv_eff + (i_motor * self.rm)
 
         # ESC conductive losses
@@ -88,6 +78,23 @@ class BLDCMSolver:
         switching_loss = K_SWITCH * v_in_calc * i_motor * duty_cycle * (1 - duty_cycle)
 
         p_in_calc = v_in_calc * (duty_cycle * i_motor) + switching_loss
+
+        return (i_motor, duty_cycle, p_in_calc, v_in_calc, v_motor, switching_loss)
+
+    def _residual(
+        self,
+        n_rpm: float,
+        v_inf: float,
+        target_power: float | None = None,
+        target_dutycycle: float | None = None,
+    ) -> float:
+        cp, _ = self._get_aero_coefficients(n_rpm, v_inf)
+
+        # Calculate Propeller Power (Aerodynamic Load)
+        n_rps = n_rpm / 60.0
+        p_prop = MPOWER_EFF * cp * self.rho * (n_rps**3) * (self.diameter**5)
+
+        _, duty_cycle, p_in_calc, *_ = self._compute_electrical_state(n_rpm, cp, p_prop)
 
         if target_power is None:
             return duty_cycle - target_dutycycle
@@ -136,37 +143,7 @@ class BLDCMSolver:
             p_prop = MPOWER_EFF * cp * self.rho * (n_rps**3) * (self.diameter**5)
             j_adv = v_inf / (n_rps * self.diameter) if v_inf > 0 else 0.0
 
-            # TRUE back-emf used strictly for Torque/Current calculation (Kt is fixed)
-            v_kv_true = n_eq / self.kv
-
-            # EFFECTIVE back-emf used for Voltage calculation (accounts for inductance/timing)
-            v_kv_eff = n_eq / (KV_EFF * self.kv)
-
-            # 3. Calculate Motor Current (Using True Kt)
-            # Current depends on physical torque, not effective voltage
-            v_est = v_kv_eff + self.rm * (self.i0 + p_prop / v_kv_true)
-            i_motor = (self.i0 * (1 + 0.01 * v_est)) + (p_prop / v_kv_true)
-
-            # 4. Calculate Motor Voltage (Using Effective Kv)
-            v_motor = v_kv_eff + (i_motor * self.rm)
-
-            # ESC conductive losses
-            v_eff = v_motor + (i_motor * ESC_RESIST)
-
-            discriminant = self.rest_voltage**2 - 4 * (i_motor * BATT_RESIST) * v_eff
-            # Prevent NaN crashes from impossible optimizer guesses
-            discriminant = max(0.0, discriminant)
-            duty_cycle = (self.rest_voltage - np.sqrt(discriminant)) / (
-                2 * i_motor * BATT_RESIST
-            )
-
-            v_in_calc = self.rest_voltage - (duty_cycle * i_motor * BATT_RESIST)
-
-            switching_loss = (
-                K_SWITCH * v_in_calc * i_motor * duty_cycle * (1 - duty_cycle)
-            )
-
-            p_in_calc = v_in_calc * (duty_cycle * i_motor) + switching_loss
+            i_motor, duty_cycle, p_in_calc, v_in_calc, _, _ = self._compute_electrical_state(n_eq, cp, p_prop)
 
             efficiency = p_prop / p_in_calc
 

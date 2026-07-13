@@ -4,27 +4,9 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from bldcm.bldcm import BLDCMSolver
-from takeoff import apply_corrections, find_tow, load_surrogate
-
-
-class AircraftParameters:
-    def __init__(self, **overrides):
-        self.g = 9.81
-        self.rho = 1.225
-        self.S_wing = 0.77
-        self.CL_max = 1.969
-        self.CL_ground = 0.997
-        self.CD_ground = 0.057
-        self.CD_max = 0.199
-        self.mu = 0.04
-        self.P_limit = 600.0
-        self.V_batt = 23.5
-        self.max_throttle = 1
-        self.PV = 1.9
-        for k, v in overrides.items():
-            if not hasattr(self, k):
-                raise ValueError(f"Unknown parameter: {k}")
-            setattr(self, k, v)
+from takeoff import find_tow
+from motor_db import apply_corrections, load_surrogate, get_all_motors, estimate_prop_weight
+from aircraft_params import AircraftParameters
 
 
 def simulate_combination(motor_dict, prop_dict, params, surrogate_model):
@@ -85,18 +67,7 @@ def simulate_combination(motor_dict, prop_dict, params, surrogate_model):
     }
 
 
-def get_motors(databases=None):
-    if databases is None:
-        databases = ["./.data/tmotor_data.csv", "./.data/mad_motor_data.csv"]
 
-    all_dfs = []
-    for db in databases:
-        df = pd.read_csv(db, on_bad_lines="skip")
-        df = df.dropna(subset=["rm", "io", "kv", "io_vref"])
-        cols = ["name", "kv", "io", "rm", "io_vref", "weight"]
-        all_dfs.append(df[cols])
-
-    return pd.concat(all_dfs, ignore_index=True)
 
 
 def get_props():
@@ -114,7 +85,7 @@ def get_props():
     props = []
     for _, row in prop_perf_df.iterrows():
         d, p, name = row["Diameter"], row["Pitch"], row["Propeller"]
-        w = (12 * d + 4 * p - 176) / 1000.0
+        w = estimate_prop_weight(d, p)
         props.append({"name": name, "diam": d, "pitch": p, "weight": w})
     return props
 
@@ -209,7 +180,7 @@ def main():
     params = AircraftParameters(**overrides)
 
     surrogate_model = load_surrogate()
-    motor_df = get_motors(databases=["./.data/all_motor.csv"])
+    motor_df = get_all_motors(databases=["./.data/all_motor.csv"])
     props = get_props()
 
     results_dir = "./.results"

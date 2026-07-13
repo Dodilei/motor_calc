@@ -6,32 +6,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from bldcm.bldcm import BLDCMSolver
-from takeoff import apply_corrections, find_tow, load_surrogate, lookup_motor
+from takeoff import find_tow
+from motor_db import apply_corrections, load_surrogate, lookup_motor, estimate_prop_weight
+from aircraft_params import AircraftParameters
 
 # Constants for motor temperature dynamics
 T_AMBIENT = 30.0  # Celsius
 C_P = 0.55  # Specific heat of motor (Joules / gram*Kelvin)
 # ALPHA_CU = 0.00393  # Temperature coefficient of copper
-
-
-class AircraftParameters:
-    def __init__(self, **overrides):
-        self.g = 9.81
-        self.rho = 1.225
-        self.S_wing = 0.77
-        self.CL_max = 1.969
-        self.CL_ground = 0.997
-        self.CD_ground = 0.057
-        self.CD_max = 0.199
-        self.mu = 0.04
-        self.P_limit = 590.0
-        self.V_batt = 23.0
-        self.max_throttle = 1.0
-        self.PV = 2.2
-        for k, v in overrides.items():
-            if not hasattr(self, k):
-                raise ValueError(f"Unknown parameter: {k}")
-            setattr(self, k, v)
 
 
 def build_parser():
@@ -142,9 +124,7 @@ def main():
 
     prop_wt = args.prop_wt
     if prop_wt is None:
-        # Formula from sweep_propulsion.py
-        prop_wt = (12 * diam + 4 * pitch - 176) / 1000.0
-
+        prop_wt = estimate_prop_weight(diam, pitch)
     # Apply corrections
     if not args.no_correction and io_vref > 0:
         kv, i0, rm = apply_corrections(kv, i0, rm, io_vref)

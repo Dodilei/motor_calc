@@ -4,10 +4,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from bldcm.bldcm import BLDCMSolver
-from propeller_surrogate import MODEL_PATH
-from surrogate.prs import PRSSurrogate
-
-BATT_VOLTAGE = 24
+from motor_db import load_surrogate
+from aircraft_params import AircraftParameters
 
 
 def sweep_forward_speed(
@@ -28,7 +26,7 @@ def sweep_forward_speed(
     return pd.DataFrame(results)
 
 
-def plot_bldc_performance(df: pd.DataFrame, p_in_target: float):
+def plot_bldc_performance(df: pd.DataFrame, p_in_target: float, V_batt: float):
     sns.set_theme(style="whitegrid", context="paper", font_scale=1.1)
     fig, axes = plt.subplots(3, 2, figsize=(14, 12))
     fig.suptitle(
@@ -107,7 +105,7 @@ def plot_bldc_performance(df: pd.DataFrame, p_in_target: float):
         label="Voltage (V)",
     )
     ax_volt.axhline(
-        BATT_VOLTAGE, color="red", linestyle="--", alpha=0.7, label="6S Limit"
+        V_batt, color="red", linestyle="--", alpha=0.7, label="6S Limit"
     )
     ax_volt.set_ylabel("Voltage (V)")
     ax_volt.set_title("Electrical Telemetry")
@@ -141,32 +139,85 @@ def plot_bldc_performance(df: pd.DataFrame, p_in_target: float):
     ax_cp.set_title("Aerodynamic Characterization ($C_p$ vs $J$)")
 
     plt.tight_layout()
-    plt.savefig("motor_performance_enhanced.png")
-    print("Plot saved to motor_performance_enhanced.png")
+    plt.savefig(".plots/motor_performance_enhanced.png")
+    print("Plot saved to .plots/motor_performance_enhanced.png")
     plt.show()
 
 
 def main():
-    # Example Initialization (Requires the trained PRS surrogate and BLDCEquilibriumSolver)
-    surrogate_model = PRSSurrogate.load(MODEL_PATH)
+    import argparse
+    params = AircraftParameters()
 
-    # Dummy parameters for demonstration
+    parser = argparse.ArgumentParser(description="BLDC Motor Operation Analysis")
+    parser.add_argument("--thrust-curve", action="store_true", help="Enable thrust curve mode")
+    parser.add_argument("--kv", type=float, default=336.0, help="Motor KV constant")
+    parser.add_argument("--i0", type=float, default=0.833, help="Motor no-load current (A)")
+    parser.add_argument("--rm", type=float, default=0.0421, help="Motor resistance (ohm)")
+    parser.add_argument("--diam", type=float, default=22.0, help="Propeller diameter (inches)")
+    parser.add_argument("--pitch", type=float, default=10.0, help="Propeller pitch (inches)")
+    parser.add_argument("--power", type=float, default=params.P_limit, help="Target power limit (W)")
+    parser.add_argument("--v-max", type=float, default=20.0, help="Maximum velocity (m/s)")
+    parser.add_argument("--points", type=int, default=21, help="Number of sweep points")
+
+    args = parser.parse_args()
+
+    surrogate_model = load_surrogate()
     solver = BLDCMSolver(
         surrogate_model=surrogate_model,
-        kv=336,
-        i0=0.833,
-        rm=0.0421,
-        diameter=22 * 0.0254,
-        pitch=10,
-        rest_voltage=BATT_VOLTAGE,
+        kv=args.kv,
+        i0=args.i0,
+        rm=args.rm,
+        diameter=args.diam * 0.0254,
+        pitch=args.pitch,
+        rest_voltage=params.V_batt,
     )
 
-    target_power = 590  # 590.0  # Watts
-    speeds = np.linspace(0, 20, 20)  # 0 to 30 m/s
+    if args.thrust_curve:
+        v_inf_range = np.linspace(0, args.v_max, args.points)
+        thrust_values = []
 
-    df_results = sweep_forward_speed(solver, target_power, 1, speeds)
-    print(df_results.head())
-    plot_bldc_performance(df_results, target_power)
+        print(f"Generating thrust curve data (P_limit={args.power}W)...")
+        for v in v_inf_range:
+            try:
+                t = solver.solve_thrust(v, max_power=args.power)
+                thrust_values.append(t)
+                print(f"v={v:5.1f} m/s | T={t:7.3f} N")
+            except Exception as e:
+                print(f"v={v:5.1f} m/s | Error: {e}")
+                thrust_values.append(0.0)
+
+        v = v_inf_range
+        t = np.array(thrust_values)
+
+        # Simple polynomial fit (3rd degree)
+        z = np.polyfit(v, t, 3)
+        p = np.poly1d(z)
+
+        print("\nPolynomial coefficients (3rd degree) for 0-20 m/s:")
+        print(z)
+
+        # Plotting code
+        plt.figure(figsize=(10, 6))
+        plt.scatter(v, t, label='Original (BLDCMSolver)', color='red')
+        v_fine = np.linspace(0, args.v_max, 200)
+        plt.plot(v_fine, p(v_fine), label='3-degree Polynomial Fit', linestyle='--')
+        plt.xlabel('Velocity (m/s)')
+        plt.ylabel('Thrust (N)')
+        plt.title('Thrust vs Velocity Curve')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig('.plots/thrust_curve.png')
+        print("\nCurve plot saved to '.plots/thrust_curve.png'")
+
+        # Show error
+        fit_errors = t - p(v)
+        max_error = np.max(np.abs(fit_errors))
+        print(f"Max fitting error: {max_error:.4f} N")
+    else:
+        speeds = np.linspace(0, args.v_max, args.points)
+        df_results = sweep_forward_speed(solver, args.power, params.max_throttle, speeds)
+        print(df_results.head())
+        plot_bldc_performance(df_results, args.power, params.V_batt)
 
 
 if __name__ == "__main__":

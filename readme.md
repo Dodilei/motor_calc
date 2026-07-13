@@ -67,6 +67,7 @@ $$f(m) = x(h=h_{obs}) - x_{max} = 0 \tag{13}$$
 
 ## 3. Usage
 
-- **Performance Sweep**: Run `sweep_propulsion.py` to compare different motor/propeller combinations and find the highest EE.
-- **Trajectory Analysis**: Run `takeoff.py` to simulate a specific mass and configuration.
-- **Motor Characterization**: Run `motor_operation.py` to generate performance plots (Efficiency, Thrust, RPM) vs forward speed.
+- **Static Analysis**: Run `motor_static.py` to generate static throttle sweep performance plots.
+- **Dynamic Analysis**: Run `motor_operation.py` to generate performance plots vs forward speed. Use `--thrust-curve` for a polynomial thrust-velocity fit.
+- **Takeoff Simulation**: Run `simulate_takeoff.py` to simulate a specific configuration and find optimal MTOW.
+- **Propulsion Sweep**: Run `sweep_propulsion.py` to compare motor/propeller combinations and find the highest EE.
