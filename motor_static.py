@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from bldcm.bldcm import BLDCMSolver
-from motor_db import load_surrogate
+from motor_db import load_surrogate, apply_corrections
 from aircraft_params import AircraftParameters
 
 
@@ -172,19 +172,34 @@ def plot_bldc_static_performance(df: pd.DataFrame, V_batt: float):
 
 
 def main():
+    import argparse
     params = AircraftParameters()
-    # Example Initialization (Requires the trained PRS surrogate and BLDCEquilibriumSolver)
-    surrogate_model = load_surrogate()
+    chosen_sys = AircraftParameters.load_chosen_system() or {}
 
-    # Dummy parameters for demonstration
+    parser = argparse.ArgumentParser(description="BLDC Motor Static Analysis")
+    parser.add_argument("--kv", type=float, default=chosen_sys.get("kv", 336.0), help="Motor KV constant")
+    parser.add_argument("--i0", type=float, default=chosen_sys.get("io", 1.142), help="Motor no-load current (A)")
+    parser.add_argument("--rm", type=float, default=chosen_sys.get("rm", 0.039), help="Motor resistance (ohm)")
+    parser.add_argument("--diam", type=float, default=chosen_sys.get("diam", 21.0), help="Propeller diameter (inches)")
+    parser.add_argument("--pitch", type=float, default=chosen_sys.get("pitch", 6.3), help="Propeller pitch (inches)")
+    parser.add_argument("--io-vref", type=float, default=chosen_sys.get("io_vref", 0.0), help="Reference voltage for I0 (0 means no correction)")
+    parser.add_argument("--no-correction", action="store_true", help="Do not apply parameter corrections")
+
+    args = parser.parse_args()
+
+    kv, i0, rm = args.kv, args.i0, args.rm
+    if not args.no_correction and args.io_vref > 0:
+        kv, i0, rm = apply_corrections(kv, i0, rm, args.io_vref)
+
+    surrogate_model = load_surrogate()
     solver = BLDCMSolver(
         surrogate_model=surrogate_model,
-        kv=336,
-        i0=1.142,
-        rm=0.039,
-        diameter=21 * 0.0254,
-        pitch=6.3,
-        rest_voltage=params.V_batt,
+        kv=kv,
+        i0=i0,
+        rm=rm,
+        diameter=args.diam * 0.0254,
+        pitch=args.pitch,
+        rest_voltage=chosen_sys.get("V_batt", params.V_batt),
     )
 
     max_power = None  # No power cap for static sweep unless desired

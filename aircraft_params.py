@@ -16,3 +16,16 @@ class AircraftParameters:
             if not hasattr(self, k):
                 raise ValueError(f"Unknown parameter: {k}")
             setattr(self, k, v)
+
+    @classmethod
+    def load_chosen_system(cls):
+        import json
+        import os
+        path = os.path.join(".data", "chosen_system.json")
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return None

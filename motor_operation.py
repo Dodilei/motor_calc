@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from bldcm.bldcm import BLDCMSolver
-from motor_db import load_surrogate
+from motor_db import load_surrogate, apply_corrections
 from aircraft_params import AircraftParameters
 
 
@@ -148,28 +148,36 @@ def main():
     import argparse
     params = AircraftParameters()
 
+    chosen_sys = AircraftParameters.load_chosen_system() or {}
+
     parser = argparse.ArgumentParser(description="BLDC Motor Operation Analysis")
     parser.add_argument("--thrust-curve", action="store_true", help="Enable thrust curve mode")
-    parser.add_argument("--kv", type=float, default=336.0, help="Motor KV constant")
-    parser.add_argument("--i0", type=float, default=0.833, help="Motor no-load current (A)")
-    parser.add_argument("--rm", type=float, default=0.0421, help="Motor resistance (ohm)")
-    parser.add_argument("--diam", type=float, default=22.0, help="Propeller diameter (inches)")
-    parser.add_argument("--pitch", type=float, default=10.0, help="Propeller pitch (inches)")
+    parser.add_argument("--kv", type=float, default=chosen_sys.get("kv", 336.0), help="Motor KV constant")
+    parser.add_argument("--i0", type=float, default=chosen_sys.get("io", 0.833), help="Motor no-load current (A)")
+    parser.add_argument("--rm", type=float, default=chosen_sys.get("rm", 0.0421), help="Motor resistance (ohm)")
+    parser.add_argument("--diam", type=float, default=chosen_sys.get("diam", 22.0), help="Propeller diameter (inches)")
+    parser.add_argument("--pitch", type=float, default=chosen_sys.get("pitch", 10.0), help="Propeller pitch (inches)")
+    parser.add_argument("--io-vref", type=float, default=chosen_sys.get("io_vref", 0.0), help="Reference voltage for I0 (0 means no correction)")
+    parser.add_argument("--no-correction", action="store_true", help="Do not apply parameter corrections")
     parser.add_argument("--power", type=float, default=params.P_limit, help="Target power limit (W)")
     parser.add_argument("--v-max", type=float, default=20.0, help="Maximum velocity (m/s)")
     parser.add_argument("--points", type=int, default=21, help="Number of sweep points")
 
     args = parser.parse_args()
 
+    kv, i0, rm = args.kv, args.i0, args.rm
+    if not args.no_correction and args.io_vref > 0:
+        kv, i0, rm = apply_corrections(kv, i0, rm, args.io_vref)
+
     surrogate_model = load_surrogate()
     solver = BLDCMSolver(
         surrogate_model=surrogate_model,
-        kv=args.kv,
-        i0=args.i0,
-        rm=args.rm,
+        kv=kv,
+        i0=i0,
+        rm=rm,
         diameter=args.diam * 0.0254,
         pitch=args.pitch,
-        rest_voltage=params.V_batt,
+        rest_voltage=chosen_sys.get("V_batt", params.V_batt),
     )
 
     if args.thrust_curve:

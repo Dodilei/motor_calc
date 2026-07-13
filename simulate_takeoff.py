@@ -17,20 +17,22 @@ C_P = 0.55  # Specific heat of motor (Joules / gram*Kelvin)
 
 
 def build_parser():
+    chosen_sys = AircraftParameters.load_chosen_system() or {}
+    
     p = argparse.ArgumentParser(
         description="Takeoff simulation for a specific plane + propulsion setup."
     )
 
     # Propulsion: manual
-    p.add_argument("--kv", type=float, help="Motor KV constant")
-    p.add_argument("--i0", type=float, help="Motor no-load current (A)")
-    p.add_argument("--rm", type=float, help="Motor internal resistance (Ohm)")
-    p.add_argument("--diam", type=float, help="Propeller diameter (inches)")
-    p.add_argument("--pitch", type=float, help="Propeller pitch (inches)")
+    p.add_argument("--kv", type=float, default=chosen_sys.get("kv"), help="Motor KV constant")
+    p.add_argument("--i0", type=float, default=chosen_sys.get("io"), help="Motor no-load current (A)")
+    p.add_argument("--rm", type=float, default=chosen_sys.get("rm"), help="Motor internal resistance (Ohm)")
+    p.add_argument("--diam", type=float, default=chosen_sys.get("diam"), help="Propeller diameter (inches)")
+    p.add_argument("--pitch", type=float, default=chosen_sys.get("pitch"), help="Propeller pitch (inches)")
     p.add_argument(
         "--io_vref",
         type=float,
-        default=0.0,
+        default=chosen_sys.get("io_vref", 0.0),
         help="I0 reference voltage for correction (V). Set to 0 to skip correction.",
     )
 
@@ -51,7 +53,7 @@ def build_parser():
     p.add_argument("--CD_max", type=float, help="CD at CL_max")
     p.add_argument("--mu", type=float, help="Ground friction coefficient")
     p.add_argument("--P_limit", type=float, help="Power limit (W)")
-    p.add_argument("--V_batt", type=float, help="Battery Voltage (V)")
+    p.add_argument("--V_batt", type=float, default=chosen_sys.get("V_batt"), help="Battery Voltage (V)")
     p.add_argument("--throttle", type=float, help="Throttle limit (V)")
     p.add_argument("--PV", type=float, help="Empty weight without propulsion (kg)")
 
