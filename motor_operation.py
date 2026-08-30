@@ -104,9 +104,7 @@ def plot_bldc_performance(df: pd.DataFrame, p_in_target: float, V_batt: float):
         color="darkorange",
         label="Voltage (V)",
     )
-    ax_volt.axhline(
-        V_batt, color="red", linestyle="--", alpha=0.7, label="6S Limit"
-    )
+    ax_volt.axhline(V_batt, color="red", linestyle="--", alpha=0.7, label="6S Limit")
     ax_volt.set_ylabel("Voltage (V)")
     ax_volt.set_title("Electrical Telemetry")
     ax_volt.set_ylim(0, df["Voltage_V"].max() * 1.1)
@@ -139,28 +137,70 @@ def plot_bldc_performance(df: pd.DataFrame, p_in_target: float, V_batt: float):
     ax_cp.set_title("Aerodynamic Characterization ($C_p$ vs $J$)")
 
     plt.tight_layout()
-    plt.savefig(".plots/motor_performance_enhanced.png")
-    print("Plot saved to .plots/motor_performance_enhanced.png")
+    plt.savefig(".plots/motor_dynamic_performance.png")
+    print("Plot saved to .plots/motor_dynamic_performance.png")
     plt.show()
 
 
 def main():
     import argparse
+
     params = AircraftParameters()
 
     chosen_sys = AircraftParameters.load_chosen_system() or {}
 
     parser = argparse.ArgumentParser(description="BLDC Motor Operation Analysis")
-    parser.add_argument("--thrust-curve", action="store_true", help="Enable thrust curve mode")
-    parser.add_argument("--kv", type=float, default=chosen_sys.get("kv", 336.0), help="Motor KV constant")
-    parser.add_argument("--i0", type=float, default=chosen_sys.get("io", 0.833), help="Motor no-load current (A)")
-    parser.add_argument("--rm", type=float, default=chosen_sys.get("rm", 0.0421), help="Motor resistance (ohm)")
-    parser.add_argument("--diam", type=float, default=chosen_sys.get("diam", 22.0), help="Propeller diameter (inches)")
-    parser.add_argument("--pitch", type=float, default=chosen_sys.get("pitch", 10.0), help="Propeller pitch (inches)")
-    parser.add_argument("--io-vref", type=float, default=chosen_sys.get("io_vref", 0.0), help="Reference voltage for I0 (0 means no correction)")
-    parser.add_argument("--no-correction", action="store_true", help="Do not apply parameter corrections")
-    parser.add_argument("--power", type=float, default=params.P_limit, help="Target power limit (W)")
-    parser.add_argument("--v-max", type=float, default=20.0, help="Maximum velocity (m/s)")
+    parser.add_argument(
+        "--thrust-curve", action="store_true", help="Enable thrust curve mode"
+    )
+    parser.add_argument(
+        "--kv",
+        type=float,
+        default=chosen_sys.get("kv", 336.0),
+        help="Motor KV constant",
+    )
+    parser.add_argument(
+        "--i0",
+        type=float,
+        default=chosen_sys.get("io", 0.833),
+        help="Motor no-load current (A)",
+    )
+    parser.add_argument(
+        "--rm",
+        type=float,
+        default=chosen_sys.get("rm", 0.0421),
+        help="Motor resistance (ohm)",
+    )
+    parser.add_argument(
+        "--diam",
+        type=float,
+        default=chosen_sys.get("diam", 22.0),
+        help="Propeller diameter (inches)",
+    )
+    parser.add_argument(
+        "--pitch",
+        type=float,
+        default=chosen_sys.get("pitch", 10.0),
+        help="Propeller pitch (inches)",
+    )
+    parser.add_argument(
+        "--io-vref",
+        type=float,
+        default=chosen_sys.get("io_vref", 0.0),
+        help="Reference voltage for I0 (0 means no correction)",
+    )
+    parser.add_argument(
+        "--no-correction",
+        action="store_true",
+        help="Do not apply parameter corrections",
+    )
+    parser.add_argument(
+        "--power", type=float, default=params.P_limit, help="Target power limit (W)"
+    )
+    parser.add_argument("--max_throttle", type=float, help="Throttle limit (V)")
+    parser.add_argument(
+        "--v-max", type=float, default=20.0, help="Maximum velocity (m/s)"
+    )
     parser.add_argument("--points", type=int, default=21, help="Number of sweep points")
 
     args = parser.parse_args()
@@ -184,10 +224,14 @@ def main():
         v_inf_range = np.linspace(0, args.v_max, args.points)
         thrust_values = []
 
-        print(f"Generating thrust curve data (P_limit={args.power}W)...")
+        print(
+            f"Generating thrust curve data (P_limit={args.power}W, throttle-{args.max_throttle})..."
+        )
         for v in v_inf_range:
             try:
-                t = solver.solve_thrust(v, max_power=args.power)
+                t = solver.solve_thrust(
+                    v, max_power=args.power, max_throttle=args.max_throttle
+                )
                 thrust_values.append(t)
                 print(f"v={v:5.1f} m/s | T={t:7.3f} N")
             except Exception as e:
@@ -206,15 +250,15 @@ def main():
 
         # Plotting code
         plt.figure(figsize=(10, 6))
-        plt.scatter(v, t, label='Original (BLDCMSolver)', color='red')
+        plt.scatter(v, t, label="Original (BLDCMSolver)", color="red")
         v_fine = np.linspace(0, args.v_max, 200)
-        plt.plot(v_fine, p(v_fine), label='3-degree Polynomial Fit', linestyle='--')
-        plt.xlabel('Velocity (m/s)')
-        plt.ylabel('Thrust (N)')
-        plt.title('Thrust vs Velocity Curve')
+        plt.plot(v_fine, p(v_fine), label="3-degree Polynomial Fit", linestyle="--")
+        plt.xlabel("Velocity (m/s)")
+        plt.ylabel("Thrust (N)")
+        plt.title("Thrust vs Velocity Curve")
         plt.legend()
         plt.grid(True)
-        plt.savefig('.plots/thrust_curve.png')
+        plt.savefig(".plots/thrust_curve.png")
         print("\nCurve plot saved to '.plots/thrust_curve.png'")
 
         # Show error
@@ -223,8 +267,11 @@ def main():
         print(f"Max fitting error: {max_error:.4f} N")
     else:
         speeds = np.linspace(0, args.v_max, args.points)
-        df_results = sweep_forward_speed(solver, args.power, params.max_throttle, speeds)
+        df_results = sweep_forward_speed(
+            solver, args.power, params.max_throttle, speeds
+        )
         print(df_results.head())
+        df_results.to_csv(".output/motor_dynamic.csv")
         plot_bldc_performance(df_results, args.power, params.V_batt)
 
 

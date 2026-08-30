@@ -10,7 +10,7 @@ class AircraftParameters:
         self.mu = 0.04
         self.P_limit = 595.0
         self.V_batt = 23.0
-        self.max_throttle = 1.0
+        self.max_throttle = 0.8
         self.PV = 2.0
         for k, v in overrides.items():
             if not hasattr(self, k):
@@ -21,6 +21,7 @@ class AircraftParameters:
     def load_chosen_system(cls):
         import json
         import os
+
         path = os.path.join(".data", "chosen_system.json")
         if os.path.exists(path):
             try:

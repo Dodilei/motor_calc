@@ -130,9 +130,7 @@ def plot_bldc_static_performance(df: pd.DataFrame, V_batt: float):
         color="darkorange",
         label="Actual Voltage (V)",
     )
-    ax_volt.axhline(
-        V_batt, color="red", linestyle="--", alpha=0.7, label="6S Limit"
-    )
+    ax_volt.axhline(V_batt, color="red", linestyle="--", alpha=0.7, label="6S Limit")
     ax_volt.set_ylabel("Voltage (V)")
     ax_volt.set_xlabel("Target Throttle")
     ax_volt.set_title("Electrical Telemetry")
@@ -173,17 +171,52 @@ def plot_bldc_static_performance(df: pd.DataFrame, V_batt: float):
 
 def main():
     import argparse
+
     params = AircraftParameters()
     chosen_sys = AircraftParameters.load_chosen_system() or {}
 
     parser = argparse.ArgumentParser(description="BLDC Motor Static Analysis")
-    parser.add_argument("--kv", type=float, default=chosen_sys.get("kv", 336.0), help="Motor KV constant")
-    parser.add_argument("--i0", type=float, default=chosen_sys.get("io", 1.142), help="Motor no-load current (A)")
-    parser.add_argument("--rm", type=float, default=chosen_sys.get("rm", 0.039), help="Motor resistance (ohm)")
-    parser.add_argument("--diam", type=float, default=chosen_sys.get("diam", 21.0), help="Propeller diameter (inches)")
-    parser.add_argument("--pitch", type=float, default=chosen_sys.get("pitch", 6.3), help="Propeller pitch (inches)")
-    parser.add_argument("--io-vref", type=float, default=chosen_sys.get("io_vref", 0.0), help="Reference voltage for I0 (0 means no correction)")
-    parser.add_argument("--no-correction", action="store_true", help="Do not apply parameter corrections")
+    parser.add_argument(
+        "--kv",
+        type=float,
+        default=chosen_sys.get("kv", 336.0),
+        help="Motor KV constant",
+    )
+    parser.add_argument(
+        "--i0",
+        type=float,
+        default=chosen_sys.get("io", 1.142),
+        help="Motor no-load current (A)",
+    )
+    parser.add_argument(
+        "--rm",
+        type=float,
+        default=chosen_sys.get("rm", 0.039),
+        help="Motor resistance (ohm)",
+    )
+    parser.add_argument(
+        "--diam",
+        type=float,
+        default=chosen_sys.get("diam", 21.0),
+        help="Propeller diameter (inches)",
+    )
+    parser.add_argument(
+        "--pitch",
+        type=float,
+        default=chosen_sys.get("pitch", 6.3),
+        help="Propeller pitch (inches)",
+    )
+    parser.add_argument(
+        "--io-vref",
+        type=float,
+        default=chosen_sys.get("io_vref", 0.0),
+        help="Reference voltage for I0 (0 means no correction)",
+    )
+    parser.add_argument(
+        "--no-correction",
+        action="store_true",
+        help="Do not apply parameter corrections",
+    )
 
     args = parser.parse_args()
 
@@ -207,6 +240,7 @@ def main():
 
     df_results = sweep_throttle(solver, max_power, throttles)
     print(df_results.head())
+    df_results.to_csv(".output/motor_static.csv")
     plot_bldc_static_performance(df_results, params.V_batt)
 
 

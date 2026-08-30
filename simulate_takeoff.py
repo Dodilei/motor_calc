@@ -7,7 +7,12 @@ import matplotlib.pyplot as plt
 
 from bldcm.bldcm import BLDCMSolver
 from takeoff import find_tow
-from motor_db import apply_corrections, load_surrogate, lookup_motor, estimate_prop_weight
+from motor_db import (
+    apply_corrections,
+    load_surrogate,
+    lookup_motor,
+    estimate_prop_weight,
+)
 from aircraft_params import AircraftParameters
 
 # Constants for motor temperature dynamics
@@ -18,17 +23,39 @@ C_P = 0.55  # Specific heat of motor (Joules / gram*Kelvin)
 
 def build_parser():
     chosen_sys = AircraftParameters.load_chosen_system() or {}
-    
+
     p = argparse.ArgumentParser(
         description="Takeoff simulation for a specific plane + propulsion setup."
     )
 
     # Propulsion: manual
-    p.add_argument("--kv", type=float, default=chosen_sys.get("kv"), help="Motor KV constant")
-    p.add_argument("--i0", type=float, default=chosen_sys.get("io"), help="Motor no-load current (A)")
-    p.add_argument("--rm", type=float, default=chosen_sys.get("rm"), help="Motor internal resistance (Ohm)")
-    p.add_argument("--diam", type=float, default=chosen_sys.get("diam"), help="Propeller diameter (inches)")
-    p.add_argument("--pitch", type=float, default=chosen_sys.get("pitch"), help="Propeller pitch (inches)")
+    p.add_argument(
+        "--kv", type=float, default=chosen_sys.get("kv"), help="Motor KV constant"
+    )
+    p.add_argument(
+        "--i0",
+        type=float,
+        default=chosen_sys.get("io"),
+        help="Motor no-load current (A)",
+    )
+    p.add_argument(
+        "--rm",
+        type=float,
+        default=chosen_sys.get("rm"),
+        help="Motor internal resistance (Ohm)",
+    )
+    p.add_argument(
+        "--diam",
+        type=float,
+        default=chosen_sys.get("diam"),
+        help="Propeller diameter (inches)",
+    )
+    p.add_argument(
+        "--pitch",
+        type=float,
+        default=chosen_sys.get("pitch"),
+        help="Propeller pitch (inches)",
+    )
     p.add_argument(
         "--io_vref",
         type=float,
@@ -53,8 +80,13 @@ def build_parser():
     p.add_argument("--CD_max", type=float, help="CD at CL_max")
     p.add_argument("--mu", type=float, help="Ground friction coefficient")
     p.add_argument("--P_limit", type=float, help="Power limit (W)")
-    p.add_argument("--V_batt", type=float, default=chosen_sys.get("V_batt"), help="Battery Voltage (V)")
-    p.add_argument("--throttle", type=float, help="Throttle limit (V)")
+    p.add_argument(
+        "--V_batt",
+        type=float,
+        default=chosen_sys.get("V_batt"),
+        help="Battery Voltage (V)",
+    )
+    p.add_argument("--max_throttle", type=float, help="Throttle limit (V)")
     p.add_argument("--PV", type=float, help="Empty weight without propulsion (kg)")
 
     # Simulation
@@ -88,7 +120,7 @@ def main():
         "mu",
         "P_limit",
         "V_batt",
-        "throttle",
+        "max_throttle",
         "PV",
     ]
     overrides = {
@@ -184,11 +216,17 @@ def main():
         print("Simulating final takeoff run with history tracking...")
         dist, history = sim.simulate(mass, track_history=True, dt=dt)
 
+        import pandas as pd
+
+        pd.DataFrame({key: [d[key] for d in history] for key in history[0]}).to_csv(
+            ".output/takeoff_performance.csv"
+        )
+
         # Plotting
         x = [h["x"] for h in history]
 
         fig = plt.figure(figsize=(12, 12), dpi=80)
-        
+
         gs = fig.add_gridspec(3, 2)
         ax1 = fig.add_subplot(gs[0, 0])
         ax2 = fig.add_subplot(gs[0, 1])
@@ -227,14 +265,14 @@ def main():
         i_mot = [h.get("Motor_Current_A", 0) for h in history]
         ax3.plot(x, i_mot, color=color1)
         ax3.tick_params(axis="y", labelcolor=color1)
-        
+
         ax3_twin = ax3.twinx()
         color2 = "tab:gray"
         ax3_twin.set_ylabel("Throttle", color=color2)
         throttles = [h.get("Throttle_t", 0) for h in history]
         ax3_twin.plot(x, throttles, color=color2)
         ax3_twin.tick_params(axis="y", labelcolor=color2)
-        
+
         ax3.set_title("Motor Current and Throttle")
         i_min_mot = min(i_mot or [0])
         i_max_mot = max(i_mot or [0])
@@ -248,13 +286,13 @@ def main():
         i_batt = [h.get("Batt_Current_A", 0) for h in history]
         ax4.plot(x, i_batt, color=color1)
         ax4.tick_params(axis="y", labelcolor=color1)
-        
+
         ax4_twin = ax4.twinx()
         color2 = "tab:pink"
         ax4_twin.set_ylabel("Voltage (V)", color=color2)
         ax4_twin.plot(x, [h.get("Voltage_V", 0) for h in history], color=color2)
         ax4_twin.tick_params(axis="y", labelcolor=color2)
-        
+
         ax4.set_title("Battery Current and Voltage")
         i_min_batt = min(i_batt or [0])
         i_max_batt = max(i_batt or [0])
@@ -275,6 +313,9 @@ def main():
         ax6.set_title("Height")
 
         plt.tight_layout()
+        plt.tight_layout()
+        plt.savefig(".plots/motor_takeoff_performance.png")
+        print("Plot saved to .plots/motor_takeoff_performance.png")
         plt.show()
 
     if args.profile:
